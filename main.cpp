@@ -1,14 +1,12 @@
 #include <string>
 #include <iostream>
-#include <math.h>
+#include <cmath>
 #include <functional>
-#include <conio.h> 
 
-#include "game/Main.hpp"
+#include "game/main.hpp"
 
 int main()
 {
-
     Main game;
     game.run();
 

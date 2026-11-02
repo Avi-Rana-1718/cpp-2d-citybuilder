@@ -8,11 +8,11 @@
 #include "Scene.hpp"
 #include "AssetManager.hpp"
 
-#include "../game/Scenes/Play_Scene.hpp"
+#include "../game/scenes/Play_Scene.hpp"
 
 class GameEngine {
 
-    bool isRunning=true;
+    bool isRunning = true;
     Scene *currentScene;
     AssetManager assets;
 
@@ -25,51 +25,84 @@ class GameEngine {
 };
 
 GameEngine::GameEngine() {
+    _window.create(sf::VideoMode(WINDOW_W, WINDOW_H), gameTitle);
+    view.setSize(sf::Vector2f(WINDOW_W, WINDOW_H));
+    view.setCenter(sf::Vector2f(WINDOW_W / 2.f, WINDOW_H / 2.f));
+    _window.setView(view);
 
-        system("cls");
+    assets.addFont("../assets/Hack.ttf");
+    assets.addTexture("grass", "grass.png");
+    assets.addTexture("player", "player.png");
+    assets.addTexture("road", "road.png");
+    assets.addTexture("road-mid", "road-mid.png");
+    assets.addTexture("residental", "residental.png");
+    assets.addTexture("commercial", "commercial.png");
+    assets.addTexture("industrial", "industrial.png");
+    assets.addTexture("farm", "farm.png");
+    assets.addTexture("school", "school.png");
+    assets.addTexture("church", "church.png");
+    assets.addTexture("park", "park.png");
+    assets.addTexture("harbour", "harbour.png");
+    assets.addTexture("water", "water.png");
 
-        _window.create(sf::VideoMode(WINDOW_W, WINDOW_H), gameTitle);
-        view.setSize(sf::Vector2f(WINDOW_W, WINDOW_H));
-        view.setCenter(sf::Vector2f(WINDOW_W/2, WINDOW_H/2));
-        _window.setView(view);
-        std::cout<<"Starting game!";
-        currentScene=new Play_Scene();
+    // Zone Designation Ground Tiles
+    assets.addTexture("zone_residental", "zone_residental.png");
+    assets.addTexture("zone_commercial", "zone_commercial.png");
+    assets.addTexture("zone_industrial", "zone_industrial.png");
+    assets.addTexture("zone_farm", "zone_farm.png");
 
-        assets.addFont("../assets/Hack.ttf");
-        assets.addTexture("grass", "grass.png");
-        assets.addTexture("player", "player.png");
-        assets.addTexture("road", "road.png");
-        assets.addTexture("road-mid", "road-mid.png");
-        assets.addTexture("residental", "residental.png");
+    // 2x2 Residential Tiers & Variants
+    assets.addTexture("res_t1_v1", "res_t1_v1.png");
+    assets.addTexture("res_t1_v2", "res_t1_v2.png");
+    assets.addTexture("res_t2_v1", "res_t2_v1.png");
+    assets.addTexture("res_t2_v2", "res_t2_v2.png");
+    assets.addTexture("res_t3_v1", "res_t3_v1.png");
+    assets.addTexture("res_t3_v2", "res_t3_v2.png");
 
+    // 2x2 Commercial Tiers & Variants
+    assets.addTexture("com_t1_v1", "com_t1_v1.png");
+    assets.addTexture("com_t1_v2", "com_t1_v2.png");
+    assets.addTexture("com_t2_v1", "com_t2_v1.png");
+    assets.addTexture("com_t2_v2", "com_t2_v2.png");
+    assets.addTexture("com_t3_v1", "com_t3_v1.png");
+    assets.addTexture("com_t3_v2", "com_t3_v2.png");
+
+    // 2x2 Industrial Tiers & Variants
+    assets.addTexture("ind_t1_v1", "ind_t1_v1.png");
+    assets.addTexture("ind_t1_v2", "ind_t1_v2.png");
+    assets.addTexture("ind_t2_v1", "ind_t2_v1.png");
+    assets.addTexture("ind_t2_v2", "ind_t2_v2.png");
+    assets.addTexture("ind_t3_v1", "ind_t3_v1.png");
+    assets.addTexture("ind_t3_v2", "ind_t3_v2.png");
+
+    // 2x2 Farm Variants
+    assets.addTexture("farm_v1", "farm_v1.png");
+    assets.addTexture("farm_v2", "farm_v2.png");
+
+    currentScene = new Play_Scene();
 }
 
 void GameEngine::run() {
     currentScene->init();
     gameTime.restart();
 
-        while(isRunning) {
-            
-            sf::Time deltaTime = deltaClock.restart();
-            frames++;
+    while(isRunning) {
+        sf::Time deltaTime = deltaClock.restart();
+        frames++;
 
+        if(framesClock.getElapsedTime().asSeconds() >= 1) {
+            calculatedFPS = frames;
+            frames = 0;
+            framesClock.restart();
+        }
 
-            if(framesClock.getElapsedTime().asSeconds()>=1) {
-                calculatedFPS=frames;
-                // std::cout<<calculatedFPS<<std::endl;
-                frames=0;
-                framesClock.restart();
+        while(_window.pollEvent(_events)) {
+            if(_events.type == sf::Event::Closed) {
+                isRunning = false;
+                _window.close();
             }
+        }
 
-            // event handler
-            while(_window.pollEvent(_events)) {
-                if(_events.type==sf::Event::Closed) {
-                    isRunning=false;
-                    _window.close();
-                }
-            }
-
-            currentScene->update(deltaTime.asSeconds());
-        } 
-        
+        currentScene->update(deltaTime.asSeconds());
+    } 
 }
