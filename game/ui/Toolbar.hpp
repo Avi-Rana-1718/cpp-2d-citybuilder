@@ -103,9 +103,9 @@ public:
         float cGap = 12.f;
         float cStartX = dockBounds.left + (dockW - (3 * cBtnW + 2 * cGap)) / 2.f;
 
-        allTools.push_back({TOOL_SCHOOL, "ELEMENTARY SCHOOL", "Edu [1] (2x2, R:5)", sf::Color(231, 76, 60), ToolbarCategory::CIVICS,
+        allTools.push_back({TOOL_SCHOOL, "ELEMENTARY SCHOOL", "Edu [1] (R:5)", sf::Color(231, 76, 60), ToolbarCategory::CIVICS,
             sf::FloatRect(cStartX + 0 * (cBtnW + cGap), btnY, cBtnW, btnH)});
-        allTools.push_back({TOOL_CHURCH, "COMMUNITY CHURCH", "Faith [2] (2x2, R:4)", sf::Color(155, 89, 182), ToolbarCategory::CIVICS,
+        allTools.push_back({TOOL_CHURCH, "COMMUNITY CHURCH", "Faith [2] (R:4)", sf::Color(155, 89, 182), ToolbarCategory::CIVICS,
             sf::FloatRect(cStartX + 1 * (cBtnW + cGap), btnY, cBtnW, btnH)});
         allTools.push_back({TOOL_PARK, "NATURE PARK", "Health [3] (R:4)", sf::Color(39, 174, 96), ToolbarCategory::CIVICS,
             sf::FloatRect(cStartX + 2 * (cBtnW + cGap), btnY, cBtnW, btnH)});

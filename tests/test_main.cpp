@@ -674,93 +674,87 @@ TEST_CASE(Test_Toolbar_NewCategoriesAndToolNames) {
 }
 
 // -------------------------------------------------------------
-// 11. Multi-Tile 2x2 Structures Tests
+// 11. Civic Buildings, Demolition & World Coverage Tests
 // -------------------------------------------------------------
-TEST_CASE(Test_MultiTile_SchoolAndChurchProperties) {
+TEST_CASE(Test_CivicServices_SchoolAndChurchProperties) {
     ScopedCoutSilence silence;
 
     SchoolZone school(3, 3);
-    ASSERT_TRUE(school.isMultiTile);
-    ASSERT_FALSE(school.isSubTile);
-    ASSERT_EQ(school.footprintW, 2);
-    ASSERT_EQ(school.footprintH, 2);
-    ASSERT_EQ(school.rootX, 3);
-    ASSERT_EQ(school.rootY, 3);
-
-    SubZone subSchool(4, 3, 3, 3, "SchoolZone");
-    ASSERT_TRUE(subSchool.isMultiTile);
-    ASSERT_TRUE(subSchool.isSubTile);
-    ASSERT_EQ(subSchool.rootX, 3);
-    ASSERT_EQ(subSchool.rootY, 3);
-    ASSERT_EQ(subSchool.getName(), "SchoolZone");
-    ASSERT_TRUE(subSchool.sprite == NULL);
+    ASSERT_EQ(school.getName(), "SchoolZone");
+    ASSERT_EQ(school.serviceRadius, 5);
+    ASSERT_FALSE(school.isActive);
 
     ChurchZone church(6, 6);
-    ASSERT_TRUE(church.isMultiTile);
-    ASSERT_FALSE(church.isSubTile);
-    ASSERT_EQ(church.footprintW, 2);
-    ASSERT_EQ(church.footprintH, 2);
-    ASSERT_EQ(church.rootX, 6);
-    ASSERT_EQ(church.rootY, 6);
+    ASSERT_EQ(church.getName(), "ChurchZone");
+    ASSERT_EQ(church.serviceRadius, 4);
+    ASSERT_FALSE(church.isActive);
+
+    ParkZone park(8, 8);
+    ASSERT_EQ(park.getName(), "ParkZone");
+    ASSERT_EQ(park.serviceRadius, 4);
 }
 
-TEST_CASE(Test_MultiTile_DemolitionPropagation) {
+TEST_CASE(Test_Demolition_RestoresGrassTile) {
     clearTestGrid();
     ScopedCoutSilence silence;
 
-    // Simulate 2x2 multi-tile placement at (4, 4)
-    int rx = 4, ry = 4;
-    delete entities[rx][ry];
-    delete entities[rx + 1][ry];
-    delete entities[rx][ry + 1];
-    delete entities[rx + 1][ry + 1];
+    int x = 4, y = 4;
+    delete entities[x][y];
+    entities[x][y] = new SchoolZone(x, y);
+    ASSERT_EQ(entities[x][y]->getName(), "SchoolZone");
 
-    SchoolZone* school = new SchoolZone(rx, ry);
-    entities[rx][ry] = school;
-    entities[rx + 1][ry] = new SubZone(rx + 1, ry, rx, ry, "SchoolZone");
-    entities[rx][ry + 1] = new SubZone(rx, ry + 1, rx, ry, "SchoolZone");
-    entities[rx + 1][ry + 1] = new SubZone(rx + 1, ry + 1, rx, ry, "SchoolZone");
+    // Road adjacent to activate
+    delete entities[x + 1][y];
+    entities[x + 1][y] = new DirtRoad(x + 1, y);
 
-    // All 4 tiles identify as SchoolZone
-    for (int dx = 0; dx <= 1; dx++) {
-        for (int dy = 0; dy <= 1; dy++) {
-            ASSERT_EQ(entities[rx + dx][ry + dy]->getName(), "SchoolZone");
-        }
-    }
+    SchoolZone* s = dynamic_cast<SchoolZone*>(entities[x][y]);
+    s->checkValid();
+    ASSERT_TRUE(s->isActive);
 
-    // Add adjacent dirt road on perimeter at (6, 4)
-    delete entities[6][4];
-    entities[6][4] = new DirtRoad(6, 4);
+    // Bulldoze SchoolZone -> must restore cleanly to GrassTile
+    delete entities[x][y];
+    entities[x][y] = new GrassTile(x, y);
+    ASSERT_EQ(entities[x][y]->getName(), "GrassTile");
 
-    school->checkValid();
-    ASSERT_TRUE(school->isActive);
+    // Bulldoze Road -> must restore cleanly to GrassTile
+    delete entities[x + 1][y];
+    entities[x + 1][y] = new GrassTile(x + 1, y);
+    ASSERT_EQ(entities[x + 1][y]->getName(), "GrassTile");
 
-    // Update sub-zones
-    entities[rx + 1][ry]->update(0.016f);
-    ASSERT_TRUE(entities[rx + 1][ry]->isActive);
+    clearTestGrid();
+}
 
-    // Simulate bulldozing one child tile at (5, 5)
-    // Multi-tile demolition should clear all 4 tiles back to GrassTile
-    Zone* z = dynamic_cast<Zone*>(entities[rx + 1][ry + 1]);
-    ASSERT_TRUE(z != NULL && z->isMultiTile);
-    int rootX = z->isSubTile ? z->rootX : (rx + 1);
-    int rootY = z->isSubTile ? z->rootY : (ry + 1);
-    ASSERT_EQ(rootX, rx);
-    ASSERT_EQ(rootY, ry);
+TEST_CASE(Test_World_FullBuildingCoverage) {
+    clearTestGrid();
+    ScopedCoutSilence silence;
 
-    for (int dx = 0; dx <= 1; dx++) {
-        for (int dy = 0; dy <= 1; dy++) {
-            delete entities[rootX + dx][rootY + dy];
-            entities[rootX + dx][rootY + dy] = new GrassTile(rootX + dx, rootY + dy);
-        }
-    }
+    // Place one of each key zone type
+    delete entities[2][2]; entities[2][2] = new DirtRoad(2, 2);
+    delete entities[3][2]; entities[3][2] = new ResidentalZone(3, 2);
+    delete entities[4][2]; entities[4][2] = new CommericalZone(4, 2);
+    delete entities[5][2]; entities[5][2] = new IndustrialZone(5, 2);
+    delete entities[6][2]; entities[6][2] = new FarmZone(6, 2);
+    delete entities[7][2]; entities[7][2] = new SchoolZone(7, 2);
+    delete entities[8][2]; entities[8][2] = new ChurchZone(8, 2);
+    delete entities[9][2]; entities[9][2] = new ParkZone(9, 2);
+    delete entities[10][2]; entities[10][2] = new WaterTile(10, 2);
+    delete entities[10][1]; entities[10][1] = new HarbourZone(10, 1);
 
-    // Verify all 4 tiles are now GrassTile
-    for (int dx = 0; dx <= 1; dx++) {
-        for (int dy = 0; dy <= 1; dy++) {
-            ASSERT_EQ(entities[rx + dx][ry + dy]->getName(), "GrassTile");
-        }
-    }
+    ASSERT_EQ(entities[2][2]->getName(), "DirtRoad");
+    ASSERT_EQ(entities[3][2]->getName(), "ResidentalZone");
+    ASSERT_EQ(entities[4][2]->getName(), "CommericalZone");
+    ASSERT_EQ(entities[5][2]->getName(), "IndustrialZone");
+    ASSERT_EQ(entities[6][2]->getName(), "FarmZone");
+    ASSERT_EQ(entities[7][2]->getName(), "SchoolZone");
+    ASSERT_EQ(entities[8][2]->getName(), "ChurchZone");
+    ASSERT_EQ(entities[9][2]->getName(), "ParkZone");
+    ASSERT_EQ(entities[10][2]->getName(), "WaterTile");
+    ASSERT_EQ(entities[10][1]->getName(), "HarbourZone");
+
+    // Harbours adjacent to water activate
+    HarbourZone* hb = dynamic_cast<HarbourZone*>(entities[10][1]);
+    hb->checkValid();
+    ASSERT_TRUE(hb->isActive);
 
     clearTestGrid();
 }

@@ -36,6 +36,9 @@ HarbourZone::HarbourZone(int posX, int posY) {
 
     sprite = new sf::Sprite;
     sprite->setTexture(m_textures["harbour"]);
+    if (m_textures["harbour"].getSize().y > 16) {
+        sprite->setOrigin(0.f, static_cast<float>(m_textures["harbour"].getSize().y - 16));
+    }
     sprite->setScale(sf::Vector2f(2, 2));
 }
 

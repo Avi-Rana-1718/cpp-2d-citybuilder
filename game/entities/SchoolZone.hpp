@@ -16,12 +16,6 @@ public:
 inline SchoolZone::SchoolZone(int posX, int posY) {
     setName("SchoolZone");
     isActive = false;
-    isMultiTile = true;
-    isSubTile = false;
-    rootX = posX;
-    rootY = posY;
-    footprintW = 2;
-    footprintH = 2;
     serviceRadius = 5;
     level = 0;
 
@@ -38,7 +32,9 @@ inline SchoolZone::SchoolZone(int posX, int posY) {
 
     sprite = new sf::Sprite;
     sprite->setTexture(m_textures["school"]);
-    sprite->setOrigin(0.f, 24.f);
+    if (m_textures["school"].getSize().y > 16) {
+        sprite->setOrigin(0.f, static_cast<float>(m_textures["school"].getSize().y - 16));
+    }
     sprite->setScale(sf::Vector2f(2.f, 2.f));
 }
 
@@ -54,22 +50,21 @@ inline void SchoolZone::update(float deltaTime) {
 }
 
 inline void SchoolZone::checkValid() {
-    bool hasRoad = false;
-    for (int x = posX - 1; x <= posX + 2; x++) {
-        if (x < 0 || x >= tileMapW) continue;
-        for (int y = posY - 1; y <= posY + 2; y++) {
-            if (y < 0 || y >= tileMapH) continue;
-            if ((x >= posX && x <= posX + 1) && (y >= posY && y <= posY + 1)) continue;
+    bool f = false;
+    for (int i = posX - 1; i <= posX + 1; i++) {
+        if (i < 0 || i >= tileMapW) continue;
+        for (int j = posY - 1; j <= posY + 1; j++) {
+            if (j < 0 || j >= tileMapH || entities[i][j] == NULL || (posX == i && posY == j)) {
+                continue;
+            }
 
-            if (entities[x][y] != NULL) {
-                if (entities[x][y]->getName() == "DirtRoad" ||
-                   (entities[x][y]->getName() == "ResidentalZone" && entities[x][y]->isActive)) {
-                    hasRoad = true;
-                    break;
-                }
+            if (entities[i][j]->getName() == "DirtRoad" ||
+               (entities[i][j]->getName() == "ResidentalZone" && entities[i][j]->isActive)) {
+                f = true;
+                break;
             }
         }
-        if (hasRoad) break;
+        if (f) break;
     }
-    isActive = hasRoad;
+    isActive = f;
 }
