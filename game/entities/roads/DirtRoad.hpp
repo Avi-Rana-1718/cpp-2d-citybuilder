@@ -48,15 +48,31 @@ void DirtRoad::check() {
     bool right = isRoad(posX + 1, posY);
     bool ne    = isRoad(posX + 1, posY - 1);
     bool sw    = isRoad(posX - 1, posY + 1);
+    bool up    = isRoad(posX, posY - 1);
+    bool down  = isRoad(posX, posY + 1);
 
-    if (left && right) {
+    if ((left || right) && (ne || sw)) {
+        sprite->setTexture(m_textures["road-mid"]);
+    } else if (left && right) {
         sprite->setTexture(m_textures["road-mid"]);
     } else if (ne && sw) {
         sprite->setTexture(m_textures["road-mid"]);
         sprite->setScale(sf::Vector2f(-2, 2));
         sprite->setOrigin(sf::Vector2f(static_cast<float>(m_textures["road-mid"].getSize().x), 0));
-    } else if (!right) {
+    } else if (up && down) {
+        sprite->setTexture(m_textures["road-mid"]);
+    } else if (left && !right) {
         sprite->setTexture(m_textures["road"]);
+        sprite->setRotation(180);
+        sprite->setOrigin(sf::Vector2f(static_cast<float>(m_textures["road"].getSize().x),
+                                       static_cast<float>(m_textures["road"].getSize().y)));
+    } else if (ne && !sw) {
+        sprite->setTexture(m_textures["road"]);
+        sprite->setScale(sf::Vector2f(-2, 2));
+        sprite->setOrigin(sf::Vector2f(static_cast<float>(m_textures["road"].getSize().x), 0));
+    } else if (sw && !ne) {
+        sprite->setTexture(m_textures["road"]);
+        sprite->setScale(sf::Vector2f(-2, 2));
         sprite->setRotation(180);
         sprite->setOrigin(sf::Vector2f(static_cast<float>(m_textures["road"].getSize().x),
                                        static_cast<float>(m_textures["road"].getSize().y)));

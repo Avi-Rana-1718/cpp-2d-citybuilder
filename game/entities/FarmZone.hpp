@@ -4,7 +4,7 @@
 
 class FarmZone : public Zone {
 public:
-    FarmZone(int posX, int posY);
+    FarmZone(int posX, int posY, int initialVariant = 1);
     ~FarmZone();
 
     void update(float deltaTime) override;
@@ -17,7 +17,7 @@ public:
     std::string getVariantName() const;
 };
 
-inline FarmZone::FarmZone(int posX, int posY) {
+inline FarmZone::FarmZone(int posX, int posY, int initialVariant) {
     setName("FarmZone");
     isActive = false;
     isMultiTile = true;
@@ -28,14 +28,14 @@ inline FarmZone::FarmZone(int posX, int posY) {
     rootY = posY;
 
     tier = 1;
-    variant = (std::rand() % 2) + 1;
+    variant = (initialVariant >= 1 && initialVariant <= 2) ? initialVariant : ((std::rand() % 2) + 1);
     level = 0;
     overallHappiness = 60;
 
-    capacity = (std::rand() % 10) + 15;
+    capacity = (variant == 1) ? 20 : 25;
     population = 0;
     townCapacity[2] += capacity;
-    zoneIncome = (std::rand() % 25) + 30;
+    zoneIncome = (variant == 1) ? 35 : 45;
     taxPaid = false;
 
     this->posX = posX;
@@ -103,8 +103,9 @@ inline void FarmZone::drawGround(sf::RenderWindow& window) {
 }
 
 inline void FarmZone::drawBuilding(sf::RenderWindow& window) {
-    if (isActive && buildingSprite != NULL) {
+    if (buildingSprite != NULL) {
         buildingSprite->setPosition(position->x, position->y);
+        buildingSprite->setColor(isActive ? sf::Color(255, 255, 255, 255) : sf::Color(215, 215, 215, 175));
         window.draw(*buildingSprite);
     }
 }

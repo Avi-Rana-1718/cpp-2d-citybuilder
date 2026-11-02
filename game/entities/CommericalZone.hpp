@@ -5,7 +5,7 @@
 
 class CommericalZone : public Zone {
 public:
-    CommericalZone(int posX, int posY);
+    CommericalZone(int posX, int posY, int initialTier = 1, int initialVariant = 1);
     ~CommericalZone();
 
     void update(float deltaTime) override;
@@ -20,7 +20,7 @@ public:
     std::string getVariantName() const;
 };
 
-inline CommericalZone::CommericalZone(int posX, int posY) {
+inline CommericalZone::CommericalZone(int posX, int posY, int initialTier, int initialVariant) {
     setName("CommericalZone");
     isActive = false;
     isMultiTile = true;
@@ -30,15 +30,23 @@ inline CommericalZone::CommericalZone(int posX, int posY) {
     rootX = posX;
     rootY = posY;
 
-    tier = 1;
-    variant = (std::rand() % 2) + 1;
+    tier = initialTier;
+    variant = (initialVariant >= 1 && initialVariant <= 2) ? initialVariant : ((std::rand() % 2) + 1);
     level = 0;
     overallHappiness = 50;
 
-    capacity = (std::rand() % 15) + 20;
+    if (tier == 1) {
+        capacity = (std::rand() % 10) + 15;
+        zoneIncome = (std::rand() % 25) + 50;
+    } else if (tier == 2) {
+        capacity = (std::rand() % 20) + 40;
+        zoneIncome = (std::rand() % 35) + 110;
+    } else {
+        capacity = (std::rand() % 30) + 100;
+        zoneIncome = (std::rand() % 50) + 220;
+    }
     population = 0;
     townCapacity[1] += capacity;
-    zoneIncome = (std::rand() % 45) + 50;
     taxPaid = false;
 
     this->posX = posX;
@@ -122,8 +130,9 @@ inline void CommericalZone::drawGround(sf::RenderWindow& window) {
 }
 
 inline void CommericalZone::drawBuilding(sf::RenderWindow& window) {
-    if (isActive && buildingSprite != NULL) {
+    if (buildingSprite != NULL) {
         buildingSprite->setPosition(position->x, position->y);
+        buildingSprite->setColor(isActive ? sf::Color(255, 255, 255, 255) : sf::Color(215, 215, 215, 175));
         window.draw(*buildingSprite);
     }
 }

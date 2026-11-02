@@ -5,7 +5,7 @@
 
 class IndustrialZone : public Zone {
 public:
-    IndustrialZone(int posX, int posY);
+    IndustrialZone(int posX, int posY, int initialTier = 1, int initialVariant = 1);
     ~IndustrialZone();
 
     void update(float deltaTime) override;
@@ -18,9 +18,10 @@ public:
     void downgradeTier(int newTier);
     void updateBuildingTexture();
     std::string getVariantName() const;
+    int pollutionEmission = 20;
 };
 
-inline IndustrialZone::IndustrialZone(int posX, int posY) {
+inline IndustrialZone::IndustrialZone(int posX, int posY, int initialTier, int initialVariant) {
     setName("IndustrialZone");
     isActive = false;
     isMultiTile = true;
@@ -30,15 +31,26 @@ inline IndustrialZone::IndustrialZone(int posX, int posY) {
     rootX = posX;
     rootY = posY;
 
-    tier = 1;
-    variant = (std::rand() % 2) + 1;
+    tier = initialTier;
+    variant = (initialVariant >= 1 && initialVariant <= 2) ? initialVariant : ((std::rand() % 2) + 1);
     level = 0;
     overallHappiness = 50;
 
-    capacity = (std::rand() % 15) + 20;
+    if (tier == 1) {
+        capacity = (std::rand() % 10) + 15;
+        zoneIncome = (std::rand() % 25) + 45;
+        pollutionEmission = 18;
+    } else if (tier == 2) {
+        capacity = (std::rand() % 20) + 40;
+        zoneIncome = (std::rand() % 35) + 110;
+        pollutionEmission = 28;
+    } else {
+        capacity = (std::rand() % 30) + 90;
+        zoneIncome = (std::rand() % 50) + 210;
+        pollutionEmission = 0; // High-tech clean fab
+    }
     population = 0;
     townCapacity[2] += capacity;
-    zoneIncome = (std::rand() % 40) + 45;
     taxPaid = false;
 
     this->posX = posX;
@@ -122,8 +134,9 @@ inline void IndustrialZone::drawGround(sf::RenderWindow& window) {
 }
 
 inline void IndustrialZone::drawBuilding(sf::RenderWindow& window) {
-    if (isActive && buildingSprite != NULL) {
+    if (buildingSprite != NULL) {
         buildingSprite->setPosition(position->x, position->y);
+        buildingSprite->setColor(isActive ? sf::Color(255, 255, 255, 255) : sf::Color(215, 215, 215, 175));
         window.draw(*buildingSprite);
     }
 }

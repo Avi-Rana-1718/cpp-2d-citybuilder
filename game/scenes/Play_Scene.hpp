@@ -388,17 +388,24 @@ void Play_Scene::placeTile(int x, int y, BuildTool tool) {
 
     int cost = 0;
     switch (tool) {
-        case TOOL_RESIDENTIAL: cost = 100; break;
-        case TOOL_COMMERCIAL:  cost = 100; break;
-        case TOOL_INDUSTRIAL:  cost = 120; break;
-        case TOOL_FARM:        cost = 60;  break;
-        case TOOL_ROAD:        cost = 10;  break;
-        case TOOL_HARBOUR:     cost = 250; break;
-        case TOOL_WATER:       cost = 20;  break;
-        case TOOL_SCHOOL:      cost = 200; break;
-        case TOOL_CHURCH:      cost = 180; break;
-        case TOOL_PARK:        cost = 80;  break;
-        case TOOL_BULLDOZE:    cost = 5;   break;
+        case TOOL_RES_COTTAGES:   cost = 100; break;
+        case TOOL_RES_APARTMENTS: cost = 250; break;
+        case TOOL_RES_TOWER:      cost = 600; break;
+        case TOOL_COM_GROCERY:    cost = 120; break;
+        case TOOL_COM_PLAZA:      cost = 280; break;
+        case TOOL_COM_TOWER:      cost = 750; break;
+        case TOOL_IND_WORKSHOP:   cost = 150; break;
+        case TOOL_IND_FACTORY:    cost = 350; break;
+        case TOOL_IND_TECH:       cost = 800; break;
+        case TOOL_FARM_BARN:      cost = 70;  break;
+        case TOOL_FARM_WINDMILL:  cost = 90;  break;
+        case TOOL_ROAD:           cost = 10;  break;
+        case TOOL_HARBOUR:        cost = 250; break;
+        case TOOL_WATER:          cost = 20;  break;
+        case TOOL_SCHOOL:         cost = 200; break;
+        case TOOL_CHURCH:         cost = 180; break;
+        case TOOL_PARK:           cost = 80;  break;
+        case TOOL_BULLDOZE:       cost = 5;   break;
         default: return;
     }
 
@@ -476,23 +483,58 @@ void Play_Scene::placeTile(int x, int y, BuildTool tool) {
     Zone* masterZone = NULL;
 
     switch (tool) {
-        case TOOL_RESIDENTIAL:
-            masterZone = new ResidentalZone(x, y);
+        case TOOL_RES_COTTAGES:
+            masterZone = new ResidentalZone(x, y, 1, 1);
             zoneBase = "zone_residental";
             typeName = "ResidentalZone";
             break;
-        case TOOL_COMMERCIAL:
-            masterZone = new CommericalZone(x, y);
+        case TOOL_RES_APARTMENTS:
+            masterZone = new ResidentalZone(x, y, 2, 1);
+            zoneBase = "zone_residental";
+            typeName = "ResidentalZone";
+            break;
+        case TOOL_RES_TOWER:
+            masterZone = new ResidentalZone(x, y, 3, 1);
+            zoneBase = "zone_residental";
+            typeName = "ResidentalZone";
+            break;
+        case TOOL_COM_GROCERY:
+            masterZone = new CommericalZone(x, y, 1, 1);
             zoneBase = "zone_commercial";
             typeName = "CommericalZone";
             break;
-        case TOOL_INDUSTRIAL:
-            masterZone = new IndustrialZone(x, y);
+        case TOOL_COM_PLAZA:
+            masterZone = new CommericalZone(x, y, 2, 1);
+            zoneBase = "zone_commercial";
+            typeName = "CommericalZone";
+            break;
+        case TOOL_COM_TOWER:
+            masterZone = new CommericalZone(x, y, 3, 1);
+            zoneBase = "zone_commercial";
+            typeName = "CommericalZone";
+            break;
+        case TOOL_IND_WORKSHOP:
+            masterZone = new IndustrialZone(x, y, 1, 1);
             zoneBase = "zone_industrial";
             typeName = "IndustrialZone";
             break;
-        case TOOL_FARM:
-            masterZone = new FarmZone(x, y);
+        case TOOL_IND_FACTORY:
+            masterZone = new IndustrialZone(x, y, 2, 1);
+            zoneBase = "zone_industrial";
+            typeName = "IndustrialZone";
+            break;
+        case TOOL_IND_TECH:
+            masterZone = new IndustrialZone(x, y, 3, 1);
+            zoneBase = "zone_industrial";
+            typeName = "IndustrialZone";
+            break;
+        case TOOL_FARM_BARN:
+            masterZone = new FarmZone(x, y, 1);
+            zoneBase = "zone_farm";
+            typeName = "FarmZone";
+            break;
+        case TOOL_FARM_WINDMILL:
+            masterZone = new FarmZone(x, y, 2);
             zoneBase = "zone_farm";
             typeName = "FarmZone";
             break;
@@ -694,14 +736,21 @@ void Play_Scene::renderDragPreview() {
 
             std::string textureKey = "";
             switch (tool) {
-                case TOOL_RESIDENTIAL: textureKey = "res_t1_v1"; break;
-                case TOOL_COMMERCIAL:  textureKey = "com_t1_v1"; break;
-                case TOOL_INDUSTRIAL:  textureKey = "ind_t1_v1"; break;
-                case TOOL_FARM:        textureKey = "farm_v1";   break;
-                case TOOL_SCHOOL:      textureKey = "school";    break;
-                case TOOL_CHURCH:      textureKey = "church";    break;
-                case TOOL_PARK:        textureKey = "park";      break;
-                case TOOL_HARBOUR:     textureKey = "harbour";   break;
+                case TOOL_RES_COTTAGES:   textureKey = "res_t1_v1"; break;
+                case TOOL_RES_APARTMENTS: textureKey = "res_t2_v1"; break;
+                case TOOL_RES_TOWER:      textureKey = "res_t3_v1"; break;
+                case TOOL_COM_GROCERY:    textureKey = "com_t1_v1"; break;
+                case TOOL_COM_PLAZA:      textureKey = "com_t2_v1"; break;
+                case TOOL_COM_TOWER:      textureKey = "com_t3_v1"; break;
+                case TOOL_IND_WORKSHOP:   textureKey = "ind_t1_v1"; break;
+                case TOOL_IND_FACTORY:    textureKey = "ind_t2_v1"; break;
+                case TOOL_IND_TECH:       textureKey = "ind_t3_v1"; break;
+                case TOOL_FARM_BARN:      textureKey = "farm_v1";   break;
+                case TOOL_FARM_WINDMILL:  textureKey = "farm_v2";   break;
+                case TOOL_SCHOOL:         textureKey = "school";    break;
+                case TOOL_CHURCH:         textureKey = "church";    break;
+                case TOOL_PARK:           textureKey = "park";      break;
+                case TOOL_HARBOUR:        textureKey = "harbour";   break;
                 default: break;
             }
 
@@ -969,31 +1018,20 @@ void Play_Scene::buildTestWorld() {
         Zone* mz = NULL;
         std::string baseTex = "grass";
         std::string typeName = "";
-        if (tool == TOOL_RESIDENTIAL) {
-            mz = new ResidentalZone(rx, ry);
-            mz->tier = tier;
-            mz->variant = variant;
-            dynamic_cast<ResidentalZone*>(mz)->updateBuildingTexture();
+        if (tool == TOOL_RES_COTTAGES || tool == TOOL_RES_APARTMENTS || tool == TOOL_RES_TOWER || tool == TOOL_RESIDENTIAL) {
+            mz = new ResidentalZone(rx, ry, tier, variant);
             baseTex = "zone_residental";
             typeName = "ResidentalZone";
-        } else if (tool == TOOL_COMMERCIAL) {
-            mz = new CommericalZone(rx, ry);
-            mz->tier = tier;
-            mz->variant = variant;
-            dynamic_cast<CommericalZone*>(mz)->updateBuildingTexture();
+        } else if (tool == TOOL_COM_GROCERY || tool == TOOL_COM_PLAZA || tool == TOOL_COM_TOWER || tool == TOOL_COMMERCIAL) {
+            mz = new CommericalZone(rx, ry, tier, variant);
             baseTex = "zone_commercial";
             typeName = "CommericalZone";
-        } else if (tool == TOOL_INDUSTRIAL) {
-            mz = new IndustrialZone(rx, ry);
-            mz->tier = tier;
-            mz->variant = variant;
-            dynamic_cast<IndustrialZone*>(mz)->updateBuildingTexture();
+        } else if (tool == TOOL_IND_WORKSHOP || tool == TOOL_IND_FACTORY || tool == TOOL_IND_TECH || tool == TOOL_INDUSTRIAL) {
+            mz = new IndustrialZone(rx, ry, tier, variant);
             baseTex = "zone_industrial";
             typeName = "IndustrialZone";
-        } else if (tool == TOOL_FARM) {
-            mz = new FarmZone(rx, ry);
-            mz->variant = variant;
-            dynamic_cast<FarmZone*>(mz)->updateBuildingTexture();
+        } else if (tool == TOOL_FARM_BARN || tool == TOOL_FARM_WINDMILL || tool == TOOL_FARM) {
+            mz = new FarmZone(rx, ry, variant);
             baseTex = "zone_farm";
             typeName = "FarmZone";
         } else if (tool == TOOL_SCHOOL) {
@@ -1019,62 +1057,64 @@ void Play_Scene::buildTestWorld() {
     };
 
     // 1. 1x1 Roads Network
-    // East-West Boulevard (y = 8)
-    for (int x = 0; x < tileMapW; x++) setRoad(x, 8);
-    // North-South Avenue (x = 9)
-    for (int y = 0; y < tileMapH; y++) setRoad(9, y);
-    // Residential Loop
-    for (int x = 1; x <= 8; x++) setRoad(x, 3);
-    for (int y = 3; y <= 8; y++) setRoad(1, y);
-    // Commercial Loop
-    for (int x = 10; x <= 18; x++) setRoad(x, 3);
-    for (int y = 3; y <= 8; y++) setRoad(18, y);
-    // Farmland Loop
-    for (int x = 1; x <= 8; x++) setRoad(x, 15);
-    for (int y = 8; y <= 15; y++) setRoad(1, y);
-    // Industrial Loop
-    for (int x = 10; x <= 18; x++) setRoad(x, 15);
-    for (int y = 8; y <= 15; y++) setRoad(18, y);
+    // North Boulevard (y = 3)
+    for (int x = 1; x <= 18; x++) setRoad(x, 3);
+    // Central Boulevard (y = 8)
+    for (int x = 1; x <= 18; x++) setRoad(x, 8);
+    // South Shore Road (y = 13)
+    for (int x = 1; x <= 18; x++) setRoad(x, 13);
+    // West Avenue Links
+    for (int y = 4; y <= 7; y++) setRoad(1, y);
+    for (int y = 9; y <= 12; y++) setRoad(1, y);
+    // East Avenue Links
+    for (int y = 4; y <= 7; y++) setRoad(18, y);
+    for (int y = 9; y <= 12; y++) setRoad(18, y);
+    // Central Link
+    for (int y = 4; y <= 7; y++) setRoad(8, y);
 
     // 2. 2x2 Residential Buildings (NW quadrant)
-    set2x2(3, 4, TOOL_RESIDENTIAL, 1, 1); // T1 Suburban Cottages
-    set2x2(6, 4, TOOL_RESIDENTIAL, 2, 1); // T2 Brick Apartments
-    set2x2(3, 1, TOOL_RESIDENTIAL, 3, 1); // T3 Highrise Luxury Tower
-    set2x2(6, 1, TOOL_RESIDENTIAL, 2, 2); // T2 Urban Condominiums
+    set2x2(2, 1, TOOL_RES_TOWER, 3, 1);      // T3 Highrise Luxury Tower
+    set2x2(5, 1, TOOL_RES_APARTMENTS, 2, 2); // T2 Urban Condominiums
+    set2x2(2, 4, TOOL_RES_COTTAGES, 1, 1);   // T1 Suburban Cottages
+    set2x2(5, 4, TOOL_RES_APARTMENTS, 2, 1); // T2 Brick Apartments
 
     // 3. 2x2 Civics Hub
-    set2x2(7, 6, TOOL_SCHOOL); // Elementary School Campus
-    set2x2(2, 6, TOOL_CHURCH); // Gothic Cathedral
-    set2x2(4, 6, TOOL_PARK);   // Grand Nature Park with fountain
+    set2x2(2, 6, TOOL_SCHOOL); // Elementary School Campus
+    set2x2(5, 6, TOOL_PARK);   // Grand Nature Park with fountain
+    set2x2(10, 6, TOOL_CHURCH); // Gothic Cathedral
+    set2x2(13, 6, TOOL_SCHOOL); // Elementary School Campus
+    set2x2(16, 4, TOOL_PARK);   // Downtown Plaza Park
 
     // 4. 2x2 Commercial Downtown (NE quadrant)
-    set2x2(10, 4, TOOL_COMMERCIAL, 1, 1); // T1 Corner Grocery
-    set2x2(13, 4, TOOL_COMMERCIAL, 2, 1); // T2 Shopping Plaza
-    set2x2(10, 1, TOOL_COMMERCIAL, 3, 1); // T3 Corporate Banking Tower
-    set2x2(13, 1, TOOL_COMMERCIAL, 2, 2); // T2 Department Store
-    set2x2(15, 6, TOOL_PARK);             // Downtown Plaza Park
+    set2x2(10, 1, TOOL_COM_TOWER, 3, 1);     // T3 Corporate Banking Tower
+    set2x2(13, 1, TOOL_COM_PLAZA, 2, 2);     // T2 Department Store
+    set2x2(10, 4, TOOL_COM_GROCERY, 1, 1);   // T1 Corner Grocery
+    set2x2(13, 4, TOOL_COM_PLAZA, 2, 1);     // T2 Shopping Plaza
 
     // 5. 2x2 Agricultural Farmlands (SW quadrant)
-    set2x2(3, 9,  TOOL_FARM, 1, 1); // Barn & Wheat Silo
-    set2x2(6, 9,  TOOL_FARM, 1, 2); // Windmill Homestead
-    set2x2(3, 12, TOOL_FARM, 1, 1); // Barn & Silo
-    set2x2(6, 12, TOOL_FARM, 1, 2); // Windmill Homestead
+    set2x2(2, 9,  TOOL_FARM_BARN, 1, 1);     // Barn & Wheat Silo
+    set2x2(5, 9,  TOOL_FARM_WINDMILL, 1, 2); // Windmill Homestead
+    set2x2(2, 11, TOOL_FARM_BARN, 1, 1);     // Barn & Silo
+    set2x2(5, 11, TOOL_FARM_WINDMILL, 1, 2); // Windmill Homestead
 
     // 6. 2x2 Industrial District (SE quadrant)
-    set2x2(10, 9,  TOOL_INDUSTRIAL, 1, 1); // T1 Scrap Workshop
-    set2x2(13, 9,  TOOL_INDUSTRIAL, 2, 1); // T2 Manufacturing Plant
-    set2x2(10, 12, TOOL_INDUSTRIAL, 3, 1); // T3 Microchip Clean-Fab
-    set2x2(13, 12, TOOL_INDUSTRIAL, 2, 2); // T2 Heavy Machine Assembly
+    set2x2(10, 9,  TOOL_IND_WORKSHOP, 1, 1); // T1 Scrap Workshop
+    set2x2(13, 9,  TOOL_IND_FACTORY, 2, 1);  // T2 Manufacturing Plant
+    set2x2(16, 9,  TOOL_IND_TECH, 3, 1);     // T3 Microchip Clean-Fab
+    set2x2(10, 11, TOOL_IND_FACTORY, 2, 2);  // T2 Heavy Machine Assembly
+    set2x2(13, 11, TOOL_IND_TECH, 3, 1);     // T3 Microchip Clean-Fab
 
     // 7. Water Basin & Harbours (South shoreline)
-    for (int x = 7; x <= 16; x++) {
-        for (int y = 17; y < tileMapH; y++) {
+    // Ocean/Bay basin along the south edge
+    for (int x = 5; x < tileMapW; x++) {
+        for (int y = 16; y < tileMapH; y++) {
             delete entities[x][y];
             entities[x][y] = new WaterTile(x, y);
         }
     }
-    set2x2(8, 15,  TOOL_HARBOUR); // Trade Harbour
-    set2x2(12, 15, TOOL_HARBOUR); // Trade Harbour
+    // Harbours cleanly on shoreline (entrance touches road at y=13, pier touches water at y=16, NEVER on road!)
+    set2x2(8, 14,  TOOL_HARBOUR); // Trade Harbour
+    set2x2(12, 14, TOOL_HARBOUR); // Trade Harbour
 
     // 8. Connect and autotile all roads
     for (int i = 0; i < tileMapW; i++) {
