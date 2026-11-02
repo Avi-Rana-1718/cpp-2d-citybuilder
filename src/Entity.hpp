@@ -6,7 +6,6 @@ class Entity {
     
     float _deltaTime;
 
-    //
     public:
 
     bool isActive;
@@ -20,7 +19,7 @@ class Entity {
     sf::Text* text=NULL;
 
     Entity();
-   virtual ~Entity();
+    virtual ~Entity();
 
     void setName(std::string entityName);
     void setDeltaTime(float deltaTime);
@@ -32,17 +31,16 @@ class Entity {
     void draw();
 
     virtual void update(float deltaTime);
-
 };
 
 Entity::Entity() {
-    _id=++entityCount;
-    entityName="Unnamed";
+    _id = ++entityCount;
+    entityName = "Unnamed";
 
     position = new sf::Vector2f();
 
-    posX=-1;
-    posY=-1;
+    posX = -1;
+    posY = -1;
 
     shape = new sf::RectangleShape(sf::Vector2f(tileSizeX, tileSizeY));
     shape->setOutlineColor(sf::Color::Red);
@@ -77,24 +75,33 @@ float Entity::getDeltaTime() {
 }
 
 void Entity::draw() {
-    if(shape!=NULL) {
+    if(shape != NULL) {
         shape->setPosition(position->x, position->y);
         _window.draw(*shape);
     }
-    if(sprite!=NULL) {
+    if(sprite != NULL) {
         sprite->setPosition(position->x, position->y);
         _window.draw(*sprite);
     }
-    if(text!=NULL) {
+    if(text != NULL) {
         text->setPosition(position->x, position->y);
         _window.draw(*text);
     }
 }
 
 void Entity::update(float deltaTime) {
+    setDeltaTime(deltaTime);
     draw();
 }
 
 Entity::~Entity() {
-    std::cout<<getName()<<" deleted!\n";
+    delete position;
+    position = NULL;
+    delete shape;
+    shape = NULL;
+    delete sprite;
+    sprite = NULL;
+    delete text;
+    text = NULL;
+    std::cout << getName() << " deleted!\n";
 }

@@ -1,4 +1,10 @@
 #pragma once
+#include <SFML/Graphics.hpp>
+#include <SFML/Audio.hpp>
+#include <string>
+#include <vector>
+#include <map>
+#include <iostream>
 
 const float version = 2.0;
 const std::string gameTitle="Chime V2";
@@ -16,7 +22,6 @@ sf::Clock gameTime;
 // game stuff
 int yr, mon, day;
 int money = 200;
-
 
 int tileX=0;
 int tileY=0;
@@ -40,12 +45,11 @@ std::map<std::string, sf::SoundBuffer> m_sounds;
 
 std::string townName="Untitled town";
 
-int mayorFavorabilty[3] = {0, 0, 0}; // where 1st = residential, 2nd = commerical and 3rd = industrial population
+int mayorFavorabilty[3] = {0, 0, 0};
 int townTaxes[3]={5, 5, 5};
 
-
 int townCapacity[3]={0, 0, 0};
-int townPopulation[3] = {0, 0, 0}; // where 1st = residential, 2nd = commerical and 3rd = industrial population
+int townPopulation[3] = {0, 0, 0};
 int townDemand[3] = {0, 0, 0};
 int townStats[9] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
 
