@@ -42,10 +42,7 @@ Entity::Entity() {
     posX = -1;
     posY = -1;
 
-    shape = new sf::RectangleShape(sf::Vector2f(tileSizeX, tileSizeY));
-    shape->setOutlineColor(sf::Color::Red);
-    shape->setOutlineThickness(4);
-    shape->setFillColor(sf::Color(0, 0, 0, 0));
+    shape = NULL;
     
     text = new sf::Text;
     text->setFont(m_fonts["../assets/Hack.ttf"]);

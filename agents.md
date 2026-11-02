@@ -33,7 +33,7 @@ The binary `citybuilder.exe`, test runner `citybuilder_tests.exe`, required SFML
 |---|---|
 | **TheoTown Bottom Toolbar** | Click any category button (`INSPECT`, `ZONING`, `CIVICS`, `INFRASTRUCTURE`) to arm tools |
 | **Mouse Hover** | Highlight and select tile under cursor (isometric diamond collision) |
-| **Left Click + Drag** | **Drag-to-Multibuild** — drag a rectangle or road path with live ghost preview, builds on release |
+| **Left Click + Drag** | **Drag-to-Multibuild** — drag an isometric diamond area or road path with live ghost preview, builds on release |
 | **Right Click** | Cancel active drag or return to `Inspect` mode |
 | **`W / A / S / D`** or **Arrow Keys** | Pan camera smoothly across the world |
 | **Hotkeys** | `Esc` (Inspect), `R` (Residential), `C` (Commercial), `I` (Industrial), `F` (Farms), `1` (School), `2` (Church), `3` (Park), `Space` (Dirt Road), `H` (Harbour), `W` (Water), `X` (Demolish) |

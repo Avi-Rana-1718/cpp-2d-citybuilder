@@ -12,10 +12,11 @@ class Window : public Entity {
 Window::Window() {
     setName("Window");
     
-    if (shape != NULL) {
-        shape->setOutlineThickness(0);
-        shape->setFillColor(sf::Color::Blue);
+    if (shape == NULL) {
+        shape = new sf::RectangleShape(sf::Vector2f(100.f, 40.f));
     }
+    shape->setOutlineThickness(0);
+    shape->setFillColor(sf::Color::Blue);
 
     std::cout << "\n" << getName() << " entity created with ID: " << getID();
 }

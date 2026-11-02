@@ -88,50 +88,28 @@ def make_zone_base(color_tint, border_color):
     return img
 
 # -------------------------------------------------------------
-# 2. 2x2 Multi-Tile Base Generator (48x40 ground diamond)
+# 2. 2:1 Isometric Helpers (Pure 2:1 Geometry, ZERO Rectangles)
 # -------------------------------------------------------------
-def draw_2x2_ground(img, ground_color=(60, 165, 50, 255), base_y=0):
+def draw_iso_diamond(img, cx, cy, hw, hh, color):
     """
-    Fills the 2x2 isometric ground footprint inside img.
-    The footprint is 48 wide, 40 tall, starting at base_y.
-    Vertices:
-      Top: (16, base_y)
-      Top-Right: (32, base_y + 8) -> Right: (48, base_y + 16)
-      Bottom-Right: (48, base_y + 32) -> Bottom: (32, base_y + 40)
-      Bottom-Left: (16, base_y + 32) -> Left: (0, base_y + 24) -> Top-Left: (0, base_y + 8)
+    Draws a 2:1 isometric diamond centered at (cx, cy).
+    hw: half width, hh: half height (strictly hh = hw // 2).
+    Every pixel follows 2:1 isometric slope. ZERO flat or vertical edges.
     """
-    for y in range(base_y, base_y + 40):
-        yr = y - base_y
-        # Compute valid x_min and x_max for this yr (0..39)
-        # Top-left edge: from (16, 0) down-left to (0, 8), then vertical (0, 8..24)
-        if yr < 8:
-            x_min = 16 - yr * 2
-            x_max = 16 + yr * 2
-        elif yr < 16:
-            x_min = 0
-            x_max = 32 + (yr - 8) * 2
-        elif yr < 24:
-            x_min = 0
-            x_max = 48
-        elif yr < 32:
-            x_min = (yr - 24) * 2
-            x_max = 48
-        else: # yr 32..39
-            x_min = 16 + (yr - 32) * 2
-            x_max = 48 - (yr - 32) * 2
-
-        for x in range(max(0, x_min), min(48, x_max)):
-            v = ((x * 7 + y * 11) % 19) - 9
-            r = max(0, min(255, ground_color[0] + v // 2))
-            g = max(0, min(255, ground_color[1] + v))
-            b = max(0, min(255, ground_color[2] + v // 3))
-            img.putpixel((x, y), (r, g, b, 255))
+    for y in range(cy - hh, cy + hh + 1):
+        for x in range(cx - hw, cx + hw + 1):
+            dx = abs(x - cx)
+            dy = abs(y - cy)
+            if (dx / float(hw)) + (dy / float(hh)) <= 1.001:
+                if 0 <= x < img.width and 0 <= y < img.height:
+                    img.putpixel((x, y), color)
 
 def draw_iso_box(img, cx, cy, hw, hh, wall_h, top_col, left_col, right_col):
     """
     Draws a 3D isometric building block at center (cx, cy) on ground.
     hw: half width, hh: half height (hh = hw // 2).
     wall_h: height of walls in pixels.
+    All roof and ground edges strictly follow authentic 2:1 slope.
     """
     # 1. Left Wall (facing SW)
     for x in range(cx - hw, cx + 1):
@@ -171,7 +149,6 @@ def make_res_t1_v1():
     # 48x48: Suburban Cottages (pair of gabled houses with picket fence)
     img = Image.new("RGBA", (48, 48), (0, 0, 0, 0))
     base_y = 8
-    draw_2x2_ground(img, (60, 165, 50, 255), base_y)
 
     # House 1 (North/Back Cottage: cx=18, cy=base_y+16, hw=10, hh=5, wall_h=8)
     draw_iso_box(img, 18, base_y + 16, 10, 5, 8, (215, 75, 60, 255), (230, 220, 205, 255), (180, 170, 155, 255))
@@ -196,7 +173,6 @@ def make_res_t1_v2():
     # 48x48: Spacious Bungalow with wraparound porch and stone chimney
     img = Image.new("RGBA", (48, 48), (0, 0, 0, 0))
     base_y = 8
-    draw_2x2_ground(img, (55, 160, 48, 255), base_y)
 
     # Main bungalow block (cx=24, cy=base_y+20, hw=15, hh=8, wall_h=9)
     draw_iso_box(img, 24, base_y + 20, 15, 8, 9, (190, 85, 55, 255), (235, 225, 210, 255), (185, 175, 160, 255))
@@ -215,7 +191,7 @@ def make_res_t2_v1():
     # 48x54: Brick Brownstone Apartments (3 stories, windows, rooftop AC)
     img = Image.new("RGBA", (48, 54), (0, 0, 0, 0))
     base_y = 14
-    draw_2x2_ground(img, (75, 75, 80, 255), base_y) # Paved sidewalk base
+    draw_iso_diamond(img, 24, base_y + 20, 17, 8, (80, 80, 85, 255)) # Paved sidewalk diamond
 
     # 3-Story Brick Complex (cx=24, cy=base_y+20, hw=16, hh=8, wall_h=18)
     draw_iso_box(img, 24, base_y + 20, 16, 8, 18, (80, 85, 90, 255), (175, 75, 60, 255), (135, 55, 45, 255))
@@ -237,7 +213,6 @@ def make_res_t2_v2():
     # 48x54: Modern Townhouse Courtyard Complex
     img = Image.new("RGBA", (48, 54), (0, 0, 0, 0))
     base_y = 14
-    draw_2x2_ground(img, (60, 165, 55, 255), base_y)
 
     # Complex Building (cx=24, cy=base_y+20, hw=15, hh=8, wall_h=16)
     draw_iso_box(img, 24, base_y + 20, 15, 8, 16, (60, 90, 120, 255), (220, 215, 200, 255), (170, 165, 150, 255))
@@ -252,7 +227,7 @@ def make_res_t3_v1():
     # 48x68: Modern Highrise Luxury Tower (Skyscraper with glass terraces & rooftop pool)
     img = Image.new("RGBA", (48, 68), (0, 0, 0, 0))
     base_y = 28
-    draw_2x2_ground(img, (85, 90, 95, 255), base_y) # Granite plaza
+    draw_iso_diamond(img, 24, base_y + 20, 16, 8, (85, 90, 95, 255)) # Granite plaza diamond
 
     # Skyscraper Tower (cx=24, cy=base_y+20, hw=14, hh=7, wall_h=34)
     draw_iso_box(img, 24, base_y + 20, 14, 7, 34, (55, 130, 185, 255), (120, 190, 235, 255), (80, 150, 200, 255))
@@ -273,7 +248,7 @@ def make_res_t3_v2():
     # 48x68: Twin Highrise Plaza (Twin glass towers with skybridge)
     img = Image.new("RGBA", (48, 68), (0, 0, 0, 0))
     base_y = 28
-    draw_2x2_ground(img, (80, 85, 90, 255), base_y)
+    draw_iso_diamond(img, 24, base_y + 20, 16, 8, (80, 85, 90, 255))
 
     # Tower 1 (West: cx=17, cy=base_y+16, hw=8, hh=4, wall_h=32)
     draw_iso_box(img, 17, base_y + 16, 8, 4, 32, (45, 110, 165, 255), (110, 175, 220, 255), (70, 135, 180, 255))
@@ -293,7 +268,6 @@ def make_com_t1_v1():
     # 48x48: Corner Grocery Store & Bakery with striped awnings
     img = Image.new("RGBA", (48, 48), (0, 0, 0, 0))
     base_y = 8
-    draw_2x2_ground(img, (90, 90, 95, 255), base_y) # Sidewalk
 
     # Commercial Building (cx=24, cy=base_y+20, hw=15, hh=8, wall_h=12)
     draw_iso_box(img, 24, base_y + 20, 15, 8, 12, (200, 160, 80, 255), (230, 220, 180, 255), (180, 170, 140, 255))
@@ -313,7 +287,6 @@ def make_com_t1_v2():
     # 48x48: Local Diner & Mini Mart with neon billboard
     img = Image.new("RGBA", (48, 48), (0, 0, 0, 0))
     base_y = 8
-    draw_2x2_ground(img, (85, 85, 90, 255), base_y)
 
     # Diner Block (cx=24, cy=base_y+20, hw=14, hh=7, wall_h=11)
     draw_iso_box(img, 24, base_y + 20, 14, 7, 11, (60, 150, 170, 255), (235, 230, 220, 255), (185, 180, 170, 255))
@@ -328,7 +301,7 @@ def make_com_t2_v1():
     # 48x56: Two-Story Shopping Plaza with glass atrium
     img = Image.new("RGBA", (48, 56), (0, 0, 0, 0))
     base_y = 16
-    draw_2x2_ground(img, (95, 95, 100, 255), base_y)
+    draw_iso_diamond(img, 24, base_y + 20, 17, 8, (95, 95, 100, 255))
 
     # Shopping Plaza Complex (cx=24, cy=base_y+20, hw=16, hh=8, wall_h=20)
     draw_iso_box(img, 24, base_y + 20, 16, 8, 20, (50, 115, 140, 255), (210, 215, 225, 255), (160, 165, 175, 255))
@@ -346,7 +319,7 @@ def make_com_t2_v2():
     # 48x56: Department Store with classic stone facade & clock
     img = Image.new("RGBA", (48, 56), (0, 0, 0, 0))
     base_y = 16
-    draw_2x2_ground(img, (90, 95, 100, 255), base_y)
+    draw_iso_diamond(img, 24, base_y + 20, 17, 8, (90, 95, 100, 255))
 
     draw_iso_box(img, 24, base_y + 20, 16, 8, 20, (140, 70, 60, 255), (225, 215, 195, 255), (175, 165, 150, 255))
 
@@ -359,7 +332,7 @@ def make_com_t3_v1():
     # 48x70: Corporate Banking Skyscraper with reflective glass & spire
     img = Image.new("RGBA", (48, 70), (0, 0, 0, 0))
     base_y = 30
-    draw_2x2_ground(img, (80, 85, 90, 255), base_y)
+    draw_iso_diamond(img, 24, base_y + 20, 16, 8, (80, 85, 90, 255))
 
     # Main Corporate Highrise (cx=24, cy=base_y+20, hw=15, hh=8, wall_h=38)
     draw_iso_box(img, 24, base_y + 20, 15, 8, 38, (40, 100, 160, 255), (100, 180, 240, 255), (60, 130, 190, 255))
@@ -375,7 +348,7 @@ def make_com_t3_v2():
     # 48x70: International Financial Center with helipad
     img = Image.new("RGBA", (48, 70), (0, 0, 0, 0))
     base_y = 30
-    draw_2x2_ground(img, (85, 90, 95, 255), base_y)
+    draw_iso_diamond(img, 24, base_y + 20, 16, 8, (85, 90, 95, 255))
 
     # Curved Profile Tower (cx=24, cy=base_y+20, hw=14, hh=7, wall_h=36)
     draw_iso_box(img, 24, base_y + 20, 14, 7, 36, (70, 75, 80, 255), (130, 205, 245, 255), (85, 155, 200, 255))
@@ -397,7 +370,6 @@ def make_ind_t1_v1():
     # 48x48: Scrap Workshop & Iron Foundry (sheds, scrap yard, chimney)
     img = Image.new("RGBA", (48, 48), (0, 0, 0, 0))
     base_y = 8
-    draw_2x2_ground(img, (100, 95, 85, 255), base_y) # Dirt & gravel base
 
     # Workshop Shed (cx=22, cy=base_y+18, hw=12, hh=6, wall_h=10)
     draw_iso_box(img, 22, base_y + 18, 12, 6, 10, (130, 70, 50, 255), (145, 90, 70, 255), (105, 60, 45, 255))
@@ -417,7 +389,6 @@ def make_ind_t1_v2():
     # 48x48: Corrugated Warehouse & Loading Yard
     img = Image.new("RGBA", (48, 48), (0, 0, 0, 0))
     base_y = 8
-    draw_2x2_ground(img, (95, 95, 95, 255), base_y)
 
     # Warehouse (cx=24, cy=base_y+20, hw=15, hh=8, wall_h=12)
     draw_iso_box(img, 24, base_y + 20, 15, 8, 12, (110, 115, 120, 255), (160, 165, 175, 255), (120, 125, 135, 255))
@@ -432,7 +403,6 @@ def make_ind_t2_v1():
     # 48x56: Manufacturing Plant (dual sawtooth roofs & tall brick chimney)
     img = Image.new("RGBA", (48, 56), (0, 0, 0, 0))
     base_y = 16
-    draw_2x2_ground(img, (90, 90, 85, 255), base_y)
 
     # Factory Complex (cx=22, cy=base_y+20, hw=14, hh=7, wall_h=18)
     draw_iso_box(img, 22, base_y + 20, 14, 7, 18, (150, 145, 140, 255), (165, 75, 55, 255), (125, 50, 35, 255))
@@ -454,7 +424,6 @@ def make_ind_t2_v2():
     # 48x56: Heavy Machinery & Assembly Plant
     img = Image.new("RGBA", (48, 56), (0, 0, 0, 0))
     base_y = 16
-    draw_2x2_ground(img, (90, 90, 90, 255), base_y)
 
     draw_iso_box(img, 24, base_y + 20, 15, 8, 18, (120, 125, 130, 255), (150, 130, 90, 255), (110, 95, 65, 255))
 
@@ -466,7 +435,7 @@ def make_ind_t3_v1():
     # 48x62: High-Tech Microchip Fab Campus (gleaming cleanroom facility, zero pollution)
     img = Image.new("RGBA", (48, 62), (0, 0, 0, 0))
     base_y = 22
-    draw_2x2_ground(img, (110, 115, 120, 255), base_y)
+    draw_iso_diamond(img, 24, base_y + 20, 17, 8, (110, 115, 120, 255))
 
     # Clean Tech Facility (cx=24, cy=base_y+20, hw=16, hh=8, wall_h=22)
     draw_iso_box(img, 24, base_y + 20, 16, 8, 22, (220, 225, 235, 255), (240, 245, 250, 255), (195, 200, 210, 255))
@@ -483,7 +452,7 @@ def make_ind_t3_v2():
     # 48x62: Automated Robotics & AI Logistics Hub
     img = Image.new("RGBA", (48, 62), (0, 0, 0, 0))
     base_y = 22
-    draw_2x2_ground(img, (105, 110, 115, 255), base_y)
+    draw_iso_diamond(img, 24, base_y + 20, 17, 8, (105, 110, 115, 255))
 
     draw_iso_box(img, 24, base_y + 20, 16, 8, 22, (60, 65, 75, 255), (200, 210, 220, 255), (150, 160, 170, 255))
 
@@ -500,7 +469,6 @@ def make_farm_v1():
     # 48x48: Red Barn & Grain Silo with golden wheat fields
     img = Image.new("RGBA", (48, 48), (0, 0, 0, 0))
     base_y = 8
-    draw_2x2_ground(img, (190, 160, 60, 255), base_y) # Wheat fields
 
     # Red Barn (cx=20, cy=base_y+20, hw=12, hh=6, wall_h=12)
     draw_iso_box(img, 20, base_y + 20, 12, 6, 12, (210, 80, 70, 255), (180, 45, 35, 255), (135, 30, 25, 255))
@@ -519,7 +487,6 @@ def make_farm_v2():
     # 48x48: Windmill Homestead with crop irrigation
     img = Image.new("RGBA", (48, 48), (0, 0, 0, 0))
     base_y = 8
-    draw_2x2_ground(img, (180, 155, 55, 255), base_y)
 
     # Stone Mill Tower (cx=24, cy=base_y+18, hw=8, hh=4, wall_h=16)
     draw_iso_box(img, 24, base_y + 18, 8, 4, 16, (140, 60, 50, 255), (210, 205, 190, 255), (160, 155, 140, 255))
@@ -539,7 +506,6 @@ def make_school_2x2():
     # 48x56: Elementary Academy Campus with clock tower & schoolyard
     img = Image.new("RGBA", (48, 56), (0, 0, 0, 0))
     base_y = 16
-    draw_2x2_ground(img, (65, 165, 55, 255), base_y)
 
     # School Complex (cx=24, cy=base_y+20, hw=16, hh=8, wall_h=16)
     draw_iso_box(img, 24, base_y + 20, 16, 8, 16, (65, 80, 105, 255), (180, 60, 50, 255), (135, 45, 38, 255))
@@ -559,7 +525,6 @@ def make_church_2x2():
     # 48x64: Gothic Cathedral with twin spires & stained glass rose window
     img = Image.new("RGBA", (48, 64), (0, 0, 0, 0))
     base_y = 24
-    draw_2x2_ground(img, (70, 150, 65, 255), base_y)
 
     # Cathedral Nave (cx=24, cy=base_y+20, hw=15, hh=8, wall_h=22)
     draw_iso_box(img, 24, base_y + 20, 15, 8, 22, (60, 70, 85, 255), (170, 175, 185, 255), (130, 135, 145, 255))
@@ -581,24 +546,24 @@ def make_park_2x2():
     # 48x46: Grand City Park with central marble fountain, oak grove & gazebo
     img = Image.new("RGBA", (48, 46), (0, 0, 0, 0))
     base_y = 6
-    draw_2x2_ground(img, (50, 170, 45, 255), base_y)
 
-    # Cobblestone Circular Plaza (center: 24, base_y+20)
+    # Cobblestone Circular Plaza (center: 24, base_y+20) - 2:1 isometric ellipse
     for dy in range(-4, 5):
         for dx in range(-8, 9):
             if (dx/8.0)**2 + (dy/4.0)**2 <= 1.0:
                 img.putpixel((24 + dx, base_y + 20 + dy), (185, 185, 190, 255))
-    # Blue Fountain Pool
+    # Blue Fountain Pool (2:1 isometric ellipse)
     for dy in range(-2, 3):
         for dx in range(-4, 5):
             if (dx/4.0)**2 + (dy/2.0)**2 <= 1.0:
                 img.putpixel((24 + dx, base_y + 20 + dy), (60, 180, 245, 255))
     img.putpixel((24, base_y + 19), (220, 240, 255, 255)) # Water spray
+    img.putpixel((24, base_y + 18), (240, 250, 255, 255))
 
     # 3D Oak Tree Canopy (Trunk at 12, base_y+16)
     for ty in range(base_y + 10, base_y + 17):
         img.putpixel((12, ty), (100, 60, 35, 255))
-    # Foliage Canopy
+    # Foliage Canopy (2:1 isometric ellipse)
     for dy in range(-6, 6):
         for dx in range(-7, 8):
             if (dx/7.0)**2 + (dy/5.5)**2 <= 1.0:
@@ -610,20 +575,16 @@ def make_park_2x2():
     return img
 
 def make_harbour_2x2():
-    # 48x52: Maritime Shipping Port with docks, cargo crane & containers
+    # 48x52: Maritime Shipping Port with wooden pier dock, cargo crane & containers
     img = Image.new("RGBA", (48, 52), (0, 0, 0, 0))
     base_y = 12
-    draw_2x2_ground(img, (140, 115, 80, 255), base_y) # Wooden pier boardwalk
 
-    # Water Edge at front
-    for y in range(base_y + 28, base_y + 40):
-        yr = y - base_y
-        for x in range(32, 48):
-            img.putpixel((x, y), (40, 110, 195, 255))
+    # Wooden pier dock (2:1 isometric box)
+    draw_iso_box(img, 24, base_y + 20, 16, 8, 3, (155, 125, 85, 255), (130, 100, 65, 255), (105, 80, 50, 255))
 
     # Shipping Cargo Containers (Red, Blue, Green stack)
-    draw_iso_box(img, 18, base_y + 18, 6, 3, 6, (210, 50, 45, 255), (180, 40, 35, 255), (140, 30, 25, 255))
-    draw_iso_box(img, 28, base_y + 16, 6, 3, 6, (45, 110, 200, 255), (40, 90, 175, 255), (30, 70, 140, 255))
+    draw_iso_box(img, 18, base_y + 17, 6, 3, 6, (210, 50, 45, 255), (180, 40, 35, 255), (140, 30, 25, 255))
+    draw_iso_box(img, 28, base_y + 15, 6, 3, 6, (45, 110, 200, 255), (40, 90, 175, 255), (30, 70, 140, 255))
 
     # Cargo Crane (Yellow steel crane)
     for cy in range(base_y - 2, base_y + 14):

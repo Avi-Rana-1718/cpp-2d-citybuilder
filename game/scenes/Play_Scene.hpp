@@ -612,21 +612,22 @@ void Play_Scene::renderDragPreview() {
 
     sf::Sprite ghostSprite;
 
-    // 1x1 Isometric Diamond (Roads & Bulldoze)
+    // 1x1 Isometric Diamond (Four vertices forming pure 2:1 rhombus)
     sf::ConvexShape diamond1x1(4);
     diamond1x1.setPoint(0, sf::Vector2f(32.f, 0.f));
     diamond1x1.setPoint(1, sf::Vector2f(64.f, 16.f));
     diamond1x1.setPoint(2, sf::Vector2f(32.f, 32.f));
     diamond1x1.setPoint(3, sf::Vector2f(0.f, 16.f));
 
-    // 2x2 Isometric Ground Footprint Polygon (48x40 unscaled -> 96x80 screen)
-    sf::ConvexShape diamond2x2(6);
-    diamond2x2.setPoint(0, sf::Vector2f(32.f, 0.f));
-    diamond2x2.setPoint(1, sf::Vector2f(96.f, 32.f));
-    diamond2x2.setPoint(2, sf::Vector2f(96.f, 64.f));
-    diamond2x2.setPoint(3, sf::Vector2f(64.f, 80.f));
-    diamond2x2.setPoint(4, sf::Vector2f(0.f, 48.f));
-    diamond2x2.setPoint(5, sf::Vector2f(0.f, 16.f));
+    auto highlightTile = [&](int tx, int ty, const sf::Color& fill, const sf::Color& outline) {
+        if (tx < 0 || tx >= tileMapW || ty < 0 || ty >= tileMapH) return;
+        if (entities[tx][ty] == NULL || entities[tx][ty]->position == NULL) return;
+        diamond1x1.setPosition(entities[tx][ty]->position->x, entities[tx][ty]->position->y);
+        diamond1x1.setFillColor(fill);
+        diamond1x1.setOutlineColor(outline);
+        diamond1x1.setOutlineThickness(1.5f);
+        _window.draw(diamond1x1);
+    };
 
     if (tool == TOOL_ROAD || tool == TOOL_WATER) {
         if (!isDragging) return;
@@ -660,30 +661,22 @@ void Play_Scene::renderDragPreview() {
                 if (z != NULL && z->isMultiTile) {
                     int rx = z->isSubTile ? z->rootX : gx;
                     int ry = z->isSubTile ? z->rootY : gy;
-                    if (rx >= 0 && rx < tileMapW && ry >= 0 && ry < tileMapH && entities[rx][ry] != NULL) {
-                        float px = entities[rx][ry]->position->x;
-                        float py = entities[rx][ry]->position->y;
-                        diamond2x2.setPosition(px, py);
-                        diamond2x2.setFillColor(sf::Color(255, 60, 60, 140));
-                        diamond2x2.setOutlineColor(sf::Color::Red);
-                        diamond2x2.setOutlineThickness(2.f);
-                        _window.draw(diamond2x2);
+                    if (rx >= 0 && rx < tileMapW && ry >= 0 && ry < tileMapH) {
+                        for (int dx = 0; dx <= 1; dx++) {
+                            for (int dy = 0; dy <= 1; dy++) {
+                                highlightTile(rx + dx, ry + dy, sf::Color(255, 60, 60, 140), sf::Color::Red);
+                            }
+                        }
                         return;
                     }
                 }
-                float px = entities[gx][gy]->position->x;
-                float py = entities[gx][gy]->position->y;
-                diamond1x1.setPosition(px, py);
-                diamond1x1.setFillColor(sf::Color(255, 60, 60, 140));
-                diamond1x1.setOutlineColor(sf::Color::Red);
-                diamond1x1.setOutlineThickness(1.5f);
-                _window.draw(diamond1x1);
+                highlightTile(gx, gy, sf::Color(255, 60, 60, 140), sf::Color::Red);
             }
         }
         return;
     }
 
-    // 2x2 Building Tools: Show 2x2 footprint and ghost building
+    // 2x2 Building Tools: Show individual 2:1 isometric diamond highlights and ghost building
     int gx = isDragging ? dragCurrent.x : tileX;
     int gy = isDragging ? dragCurrent.y : tileY;
 
@@ -692,12 +685,12 @@ void Play_Scene::renderDragPreview() {
             float px = entities[gx][gy]->position->x;
             float py = entities[gx][gy]->position->y;
 
-            // Translucent 2x2 ground boundary
-            diamond2x2.setPosition(px, py);
-            diamond2x2.setFillColor(sf::Color(46, 204, 113, 70));
-            diamond2x2.setOutlineColor(sf::Color(46, 204, 113, 220));
-            diamond2x2.setOutlineThickness(1.5f);
-            _window.draw(diamond2x2);
+            // Highlight all 4 constituent 2:1 isometric tile diamonds
+            for (int dx = 0; dx <= 1; dx++) {
+                for (int dy = 0; dy <= 1; dy++) {
+                    highlightTile(gx + dx, gy + dy, sf::Color(46, 204, 113, 70), sf::Color(46, 204, 113, 220));
+                }
+            }
 
             std::string textureKey = "";
             switch (tool) {
