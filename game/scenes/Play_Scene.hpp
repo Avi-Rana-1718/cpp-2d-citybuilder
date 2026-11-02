@@ -1057,64 +1057,60 @@ void Play_Scene::buildTestWorld() {
     };
 
     // 1. 1x1 Roads Network
-    // North Boulevard (y = 3)
+    // North Avenue (y = 3)
     for (int x = 1; x <= 18; x++) setRoad(x, 3);
-    // Central Boulevard (y = 8)
-    for (int x = 1; x <= 18; x++) setRoad(x, 8);
-    // South Shore Road (y = 13)
-    for (int x = 1; x <= 18; x++) setRoad(x, 13);
-    // West Avenue Links
-    for (int y = 4; y <= 7; y++) setRoad(1, y);
-    for (int y = 9; y <= 12; y++) setRoad(1, y);
-    // East Avenue Links
-    for (int y = 4; y <= 7; y++) setRoad(18, y);
-    for (int y = 9; y <= 12; y++) setRoad(18, y);
-    // Central Link
-    for (int y = 4; y <= 7; y++) setRoad(8, y);
+    // Central Boulevard (y = 6)
+    for (int x = 1; x <= 18; x++) setRoad(x, 6);
+    // South Shore Road (y = 9)
+    for (int x = 1; x <= 18; x++) setRoad(x, 9);
+    // West Avenue Link
+    for (int y = 3; y <= 9; y++) setRoad(1, y);
+    // East Avenue Link
+    for (int y = 3; y <= 9; y++) setRoad(18, y);
 
-    // 2. 2x2 Residential Buildings (NW quadrant)
-    set2x2(2, 1, TOOL_RES_TOWER, 3, 1);      // T3 Highrise Luxury Tower
-    set2x2(5, 1, TOOL_RES_APARTMENTS, 2, 2); // T2 Urban Condominiums
-    set2x2(2, 4, TOOL_RES_COTTAGES, 1, 1);   // T1 Suburban Cottages
-    set2x2(5, 4, TOOL_RES_APARTMENTS, 2, 1); // T2 Brick Apartments
+    // 2. Row 1 (y = 1): Residential Sector — ALL BUILDINGS SIDE BY SIDE!
+    set2x2(2,  1, TOOL_RES_COTTAGES,   1, 1); // T1 Suburban Cottages v1
+    set2x2(4,  1, TOOL_RES_COTTAGES,   1, 2); // T1 Bungalow Homestead v2
+    set2x2(6,  1, TOOL_RES_APARTMENTS, 2, 1); // T2 Brick Brownstone Apartments v1
+    set2x2(8,  1, TOOL_RES_APARTMENTS, 2, 2); // T2 Urban Condominiums v2
+    set2x2(10, 1, TOOL_RES_TOWER,      3, 1); // T3 Highrise Luxury Tower v1
+    set2x2(12, 1, TOOL_RES_TOWER,      3, 2); // T3 Twin Highrise Plaza v2
+    set2x2(14, 1, TOOL_PARK);                 // Grand Nature Park
+    set2x2(16, 1, TOOL_CHURCH);               // Community Cathedral
 
-    // 3. 2x2 Civics Hub
-    set2x2(2, 6, TOOL_SCHOOL); // Elementary School Campus
-    set2x2(5, 6, TOOL_PARK);   // Grand Nature Park with fountain
-    set2x2(10, 6, TOOL_CHURCH); // Gothic Cathedral
-    set2x2(13, 6, TOOL_SCHOOL); // Elementary School Campus
-    set2x2(16, 4, TOOL_PARK);   // Downtown Plaza Park
+    // 3. Row 2 (y = 4): Commercial Downtown — ALL BUILDINGS SIDE BY SIDE!
+    set2x2(2,  4, TOOL_COM_GROCERY, 1, 1); // T1 Corner Grocery & Bakery v1
+    set2x2(4,  4, TOOL_COM_GROCERY, 1, 2); // T1 Local Diner & Mini Mart v2
+    set2x2(6,  4, TOOL_COM_PLAZA,   2, 1); // T2 Shopping Plaza Arcade v1
+    set2x2(8,  4, TOOL_COM_PLAZA,   2, 2); // T2 Department Store Arcade v2
+    set2x2(10, 4, TOOL_COM_TOWER,   3, 1); // T3 Corporate Banking Highrise v1
+    set2x2(12, 4, TOOL_COM_TOWER,   3, 2); // T3 International Financial Center v2
+    set2x2(14, 4, TOOL_SCHOOL);             // Elementary School
+    set2x2(16, 4, TOOL_PARK);               // Downtown Plaza Park
 
-    // 4. 2x2 Commercial Downtown (NE quadrant)
-    set2x2(10, 1, TOOL_COM_TOWER, 3, 1);     // T3 Corporate Banking Tower
-    set2x2(13, 1, TOOL_COM_PLAZA, 2, 2);     // T2 Department Store
-    set2x2(10, 4, TOOL_COM_GROCERY, 1, 1);   // T1 Corner Grocery
-    set2x2(13, 4, TOOL_COM_PLAZA, 2, 1);     // T2 Shopping Plaza
+    // 4. Row 3 (y = 7): Agriculture & Industry — ALL BUILDINGS SIDE BY SIDE!
+    set2x2(2,  7, TOOL_FARM_BARN,     1, 1); // Barn & Wheat Silo v1
+    set2x2(4,  7, TOOL_FARM_WINDMILL, 1, 2); // Windmill Homestead v2
+    set2x2(6,  7, TOOL_IND_WORKSHOP,   1, 1); // T1 Scrap Workshop & Foundry v1
+    set2x2(8,  7, TOOL_IND_WORKSHOP,   1, 2); // T1 Warehouse & Logistics Depot v2
+    set2x2(10, 7, TOOL_IND_FACTORY,    2, 1); // T2 Manufacturing Plant v1
+    set2x2(12, 7, TOOL_IND_FACTORY,    2, 2); // T2 Heavy Machine Assembly v2
+    set2x2(14, 7, TOOL_IND_TECH,       3, 1); // T3 Microchip Clean-Fab Hub v1
+    set2x2(16, 7, TOOL_IND_TECH,       3, 2); // T3 Robotics Automation Facility v2
 
-    // 5. 2x2 Agricultural Farmlands (SW quadrant)
-    set2x2(2, 9,  TOOL_FARM_BARN, 1, 1);     // Barn & Wheat Silo
-    set2x2(5, 9,  TOOL_FARM_WINDMILL, 1, 2); // Windmill Homestead
-    set2x2(2, 11, TOOL_FARM_BARN, 1, 1);     // Barn & Silo
-    set2x2(5, 11, TOOL_FARM_WINDMILL, 1, 2); // Windmill Homestead
-
-    // 6. 2x2 Industrial District (SE quadrant)
-    set2x2(10, 9,  TOOL_IND_WORKSHOP, 1, 1); // T1 Scrap Workshop
-    set2x2(13, 9,  TOOL_IND_FACTORY, 2, 1);  // T2 Manufacturing Plant
-    set2x2(16, 9,  TOOL_IND_TECH, 3, 1);     // T3 Microchip Clean-Fab
-    set2x2(10, 11, TOOL_IND_FACTORY, 2, 2);  // T2 Heavy Machine Assembly
-    set2x2(13, 11, TOOL_IND_TECH, 3, 1);     // T3 Microchip Clean-Fab
-
-    // 7. Water Basin & Harbours (South shoreline)
-    // Ocean/Bay basin along the south edge
-    for (int x = 5; x < tileMapW; x++) {
-        for (int y = 16; y < tileMapH; y++) {
+    // 5. Row 4 (y = 10): Shoreline Harbours & Water — ALL HARBOURS SIDE BY SIDE!
+    for (int x = 3; x < tileMapW; x++) {
+        for (int y = 12; y < tileMapH; y++) {
             delete entities[x][y];
             entities[x][y] = new WaterTile(x, y);
         }
     }
-    // Harbours cleanly on shoreline (entrance touches road at y=13, pier touches water at y=16, NEVER on road!)
-    set2x2(8, 14,  TOOL_HARBOUR); // Trade Harbour
-    set2x2(12, 14, TOOL_HARBOUR); // Trade Harbour
+    set2x2(4,  10, TOOL_HARBOUR); // Trade Harbour 1
+    set2x2(6,  10, TOOL_HARBOUR); // Trade Harbour 2
+    set2x2(8,  10, TOOL_HARBOUR); // Trade Harbour 3
+    set2x2(10, 10, TOOL_HARBOUR); // Trade Harbour 4
+    set2x2(12, 10, TOOL_HARBOUR); // Trade Harbour 5
+    set2x2(14, 10, TOOL_HARBOUR); // Trade Harbour 6
 
     // 8. Connect and autotile all roads
     for (int i = 0; i < tileMapW; i++) {
