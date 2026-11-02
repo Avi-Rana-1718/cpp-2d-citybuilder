@@ -1019,6 +1019,144 @@ TEST_CASE(Test_TheoTown_InsufficientFundsAndBulldoze) {
 }
 
 // -------------------------------------------------------------
+// 7. Traffic, Pedestrian & Dynamic Animation Tests
+// -------------------------------------------------------------
+TEST_CASE(Test_VehicleSystem_DirectionAndRoadAdherence) {
+    clearTestGrid();
+    ScopedCoutSilence silence;
+
+    // Verify directional math
+    ASSERT_EQ(VehicleSystem::computeDirection({5, 5}, {6, 5}), VEH_DIR_SE);
+    ASSERT_EQ(VehicleSystem::computeDirection({5, 5}, {4, 5}), VEH_DIR_NW);
+    ASSERT_EQ(VehicleSystem::computeDirection({5, 5}, {5, 6}), VEH_DIR_SW);
+    ASSERT_EQ(VehicleSystem::computeDirection({5, 5}, {5, 4}), VEH_DIR_NE);
+
+    // Build 2-tile road: (5, 5) <-> (6, 5)
+    delete entities[5][5];
+    entities[5][5] = new DirtRoad(5, 5);
+    delete entities[6][5];
+    entities[6][5] = new DirtRoad(6, 5);
+
+    VehicleSystem vs;
+    Vehicle v;
+    v.currentTile = {5, 5};
+    v.targetTile = {6, 5};
+    v.prevTile = {5, 5};
+    v.progress = 0.0f;
+    v.speed = 100.0f; // Fast to complete segment quickly
+    v.dir = VEH_DIR_SE;
+    v.type = VEH_SEDAN;
+    vs.addVehicleDirect(v);
+
+    ASSERT_EQ(vs.getVehicleCount(), 1u);
+
+    // Advance simulation: vehicle reaches (6, 5) and must turn around (dead end)
+    vs.update(0.8f);
+
+    ASSERT_EQ(vs.getVehicleCount(), 1u);
+    const auto& list = vs.getVehicles();
+    ASSERT_EQ(list[0].currentTile.x, 6);
+    ASSERT_EQ(list[0].currentTile.y, 5);
+    ASSERT_EQ(list[0].targetTile.x, 5);
+    ASSERT_EQ(list[0].targetTile.y, 5);
+    ASSERT_EQ(list[0].dir, VEH_DIR_NW);
+
+    clearTestGrid();
+}
+
+TEST_CASE(Test_VehicleSystem_SpawningAndDespawn) {
+    clearTestGrid();
+    ScopedCoutSilence silence;
+
+    // Build straight road
+    for (int x = 2; x <= 8; x++) {
+        delete entities[x][4];
+        entities[x][4] = new DirtRoad(x, 4);
+    }
+
+    VehicleSystem vs;
+    ASSERT_EQ(vs.getVehicleCount(), 0u);
+
+    // Spawn vehicle
+    vs.spawnVehicle();
+    ASSERT_TRUE(vs.getVehicleCount() >= 1u);
+
+    // Bulldoze road under vehicle
+    int cx = vs.getVehicles()[0].currentTile.x;
+    int cy = vs.getVehicles()[0].currentTile.y;
+    delete entities[cx][cy];
+    entities[cx][cy] = new GrassTile(cx, cy);
+
+    // Update: vehicle on non-road tile must despawn safely
+    vs.update(0.1f);
+    ASSERT_EQ(vs.getVehicleCount(), 0u);
+
+    clearTestGrid();
+}
+
+TEST_CASE(Test_PedestrianSystem_WalkAndCivicRoam) {
+    clearTestGrid();
+    ScopedCoutSilence silence;
+
+    PedestrianSystem ps;
+    // Empty grass is not walkable
+    ASSERT_FALSE(ps.isWalkable(5, 5));
+
+    // Place park
+    delete entities[5][5];
+    entities[5][5] = new ParkZone(5, 5);
+    ASSERT_TRUE(ps.isWalkable(5, 5));
+    ASSERT_TRUE(ps.isCivicGround(5, 5));
+
+    // Spawn citizen in park
+    ps.spawnCitizen();
+    ASSERT_TRUE(ps.getCitizenCount() >= 1u);
+
+    // Advance simulation: citizen updates position and animation timer
+    ps.update(0.5f);
+    ASSERT_TRUE(ps.getCitizenCount() >= 1u);
+
+    clearTestGrid();
+}
+
+TEST_CASE(Test_BuildingAnimationSystem_WindmillRotation) {
+    BuildingAnimationSystem bas;
+    ASSERT_NEAR(bas.getWindmillAngle(), 0.0f, 0.001f);
+
+    // 1 second of update at 90 deg/s
+    bas.update(1.0f);
+    ASSERT_NEAR(bas.getWindmillAngle(), 90.0f, 0.5f);
+
+    // Advance past 360 degrees: must wrap smoothly
+    bas.update(3.5f);
+    ASSERT_TRUE(bas.getWindmillAngle() >= 0.0f && bas.getWindmillAngle() < 360.0f);
+}
+
+TEST_CASE(Test_BuildingAnimationSystem_SmokeAndFountain) {
+    clearTestGrid();
+    ScopedCoutSilence silence;
+
+    BuildingAnimationSystem bas;
+    ASSERT_EQ(bas.getFountainFrame(), 0);
+
+    // Fountain frame updates every 0.16s
+    bas.update(0.2f);
+    ASSERT_EQ(bas.getFountainFrame(), 1);
+
+    // Place active industrial factory
+    delete entities[5][5];
+    IndustrialZone* ind = new IndustrialZone(5, 5, 1, 1);
+    ind->isActive = true;
+    entities[5][5] = ind;
+
+    // Update past smoke spawn threshold (0.35s)
+    bas.update(0.5f);
+    ASSERT_TRUE(bas.getParticleCount() >= 1u);
+
+    clearTestGrid();
+}
+
+// -------------------------------------------------------------
 // Main Test Runner Entrypoint
 // -------------------------------------------------------------
 int main() {
@@ -1067,6 +1205,48 @@ int main() {
 
     m_textures["farm_v1"] = sf::Texture();
     m_textures["farm_v2"] = sf::Texture();
+
+    // Autonomous Vehicles
+    m_textures["car_se"] = sf::Texture();
+    m_textures["car_nw"] = sf::Texture();
+    m_textures["car_sw"] = sf::Texture();
+    m_textures["car_ne"] = sf::Texture();
+    m_textures["car_sedan_se"] = sf::Texture();
+    m_textures["car_sedan_nw"] = sf::Texture();
+    m_textures["car_sedan_sw"] = sf::Texture();
+    m_textures["car_sedan_ne"] = sf::Texture();
+    m_textures["car_taxi_se"] = sf::Texture();
+    m_textures["car_taxi_nw"] = sf::Texture();
+    m_textures["car_taxi_sw"] = sf::Texture();
+    m_textures["car_taxi_ne"] = sf::Texture();
+    m_textures["car_coupe_se"] = sf::Texture();
+    m_textures["car_coupe_nw"] = sf::Texture();
+    m_textures["car_coupe_sw"] = sf::Texture();
+    m_textures["car_coupe_ne"] = sf::Texture();
+    m_textures["car_van_se"] = sf::Texture();
+    m_textures["car_van_nw"] = sf::Texture();
+    m_textures["car_van_sw"] = sf::Texture();
+    m_textures["car_van_ne"] = sf::Texture();
+
+    // Citizens & Pedestrians
+    m_textures["citizen_walk_0"] = sf::Texture();
+    m_textures["citizen_walk_1"] = sf::Texture();
+    for (int ct = 0; ct < 4; ct++) {
+        m_textures["citizen_" + std::to_string(ct) + "_walk_0"] = sf::Texture();
+        m_textures["citizen_" + std::to_string(ct) + "_walk_1"] = sf::Texture();
+    }
+
+    // Dynamic Building Animation Elements
+    m_textures["windmill_blades"] = sf::Texture();
+    m_textures["smoke_puff_0"] = sf::Texture();
+    m_textures["smoke_puff_1"] = sf::Texture();
+    m_textures["smoke_puff_2"] = sf::Texture();
+    m_textures["smoke_puff_3"] = sf::Texture();
+    m_textures["fountain_0"] = sf::Texture();
+    m_textures["fountain_1"] = sf::Texture();
+    m_textures["fountain_2"] = sf::Texture();
+    m_textures["beacon_light"] = sf::Texture();
+    m_textures["harbour_crane_light"] = sf::Texture();
 
     return TestRegistry::instance().runAll();
 }
