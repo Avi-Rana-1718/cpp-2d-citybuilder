@@ -65,10 +65,17 @@ class Play_Scene : public Scene {
     int gameSpeed = 1; // 0: Paused, 1: Normal, 2: Fast
     int lastDailyIncome = 45;
 
+    // TheoTown Placement Validation & Notification
+    mutable std::string lastPlacementError = "";
+    float placementErrorTimer = 0.f;
+
 public:
     ~Play_Scene();
     void init() override;
     void update(float deltaTime) override;
+
+    bool canPlaceTile(int x, int y, BuildTool tool, std::string* outReason = nullptr) const;
+    int getToolCost(BuildTool tool) const;
 
 private:
     void handleCameraMovement(float deltaTime);
@@ -152,6 +159,9 @@ void Play_Scene::init() {
 
 void Play_Scene::update(float deltaTime) {
     this->_deltaTime = deltaTime;
+    if (placementErrorTimer > 0.f) {
+        placementErrorTimer -= deltaTime;
+    }
 
     // 1. Process Input
     handleCameraMovement(deltaTime);
@@ -382,36 +392,175 @@ std::vector<sf::Vector2i> Play_Scene::computeDragTiles() const {
     return tiles;
 }
 
+int Play_Scene::getToolCost(BuildTool tool) const {
+    switch (tool) {
+        case TOOL_RES_COTTAGES:   return 100;
+        case TOOL_RES_APARTMENTS: return 250;
+        case TOOL_RES_TOWER:      return 600;
+        case TOOL_COM_GROCERY:    return 120;
+        case TOOL_COM_PLAZA:      return 280;
+        case TOOL_COM_TOWER:      return 750;
+        case TOOL_IND_WORKSHOP:   return 150;
+        case TOOL_IND_FACTORY:    return 350;
+        case TOOL_IND_TECH:       return 800;
+        case TOOL_FARM_BARN:      return 70;
+        case TOOL_FARM_WINDMILL:  return 90;
+        case TOOL_ROAD:           return 10;
+        case TOOL_HARBOUR:        return 250;
+        case TOOL_WATER:          return 20;
+        case TOOL_SCHOOL:         return 200;
+        case TOOL_CHURCH:         return 180;
+        case TOOL_PARK:           return 80;
+        case TOOL_BULLDOZE:       return 5;
+        default: return 0;
+    }
+}
+
+bool Play_Scene::canPlaceTile(int x, int y, BuildTool tool, std::string* outReason) const {
+    if (tool == TOOL_NONE) return false;
+
+    int cost = getToolCost(tool);
+    if (money < cost) {
+        if (outReason) *outReason = "Insufficient Funds ($" + std::to_string(cost) + " needed)";
+        return false;
+    }
+
+    // 1. Bulldoze Tool
+    if (tool == TOOL_BULLDOZE) {
+        if (x < 0 || x >= tileMapW || y < 0 || y >= tileMapH) return false;
+        if (entities[x][y] == nullptr || entities[x][y]->getName() == "GrassTile") {
+            if (outReason) *outReason = "Already Clear Ground";
+            return false;
+        }
+        return true;
+    }
+
+    // 2. Road Tool (1x1)
+    if (tool == TOOL_ROAD) {
+        if (x < 0 || x >= tileMapW || y < 0 || y >= tileMapH) return false;
+        if (entities[x][y] == nullptr) return false;
+        std::string name = entities[x][y]->getName();
+        if (name == "DirtRoad") {
+            if (outReason) *outReason = "Road Already Built";
+            return false;
+        }
+        if (name == "WaterTile") {
+            if (outReason) *outReason = "Cannot Build Road on Water";
+            return false;
+        }
+        if (name != "GrassTile") {
+            if (outReason) *outReason = "Blocked by Structure — Bulldoze First";
+            return false;
+        }
+        return true;
+    }
+
+    // 3. Water Tool (1x1)
+    if (tool == TOOL_WATER) {
+        if (x < 0 || x >= tileMapW || y < 0 || y >= tileMapH) return false;
+        if (entities[x][y] == nullptr) return false;
+        std::string name = entities[x][y]->getName();
+        if (name == "WaterTile") {
+            if (outReason) *outReason = "Already Water";
+            return false;
+        }
+        if (name != "GrassTile") {
+            if (outReason) *outReason = "Area Occupied — Bulldoze First";
+            return false;
+        }
+        return true;
+    }
+
+    // 4. 2x2 Structures (Residential, Commercial, Industrial, Farm, School, Church, Park, Harbour)
+    if (x < 0 || x + 1 >= tileMapW || y < 0 || y + 1 >= tileMapH) {
+        if (outReason) *outReason = "Out of Map Bounds";
+        return false;
+    }
+
+    // Check all 4 footprint tiles for obstacles
+    for (int dx = 0; dx <= 1; dx++) {
+        for (int dy = 0; dy <= 1; dy++) {
+            int cx = x + dx;
+            int cy = y + dy;
+            if (entities[cx][cy] == nullptr) return false;
+            std::string name = entities[cx][cy]->getName();
+            if (name == "DirtRoad") {
+                if (outReason) *outReason = "Blocked by Road!";
+                return false;
+            }
+            if (name == "WaterTile") {
+                if (outReason) *outReason = "Blocked by Water!";
+                return false;
+            }
+            if (name != "GrassTile") {
+                if (outReason) *outReason = "Lot Occupied — Bulldoze First!";
+                return false;
+            }
+        }
+    }
+
+    // Check perimeter adjacency (tiles bordering the 2x2 lot)
+    bool touchesRoad = false;
+    bool touchesWater = false;
+
+    auto checkPerim = [&](int px, int py) {
+        if (px < 0 || px >= tileMapW || py < 0 || py >= tileMapH) return;
+        if (entities[px][py] == nullptr) return;
+        std::string n = entities[px][py]->getName();
+        if (n == "DirtRoad") touchesRoad = true;
+        if (n == "WaterTile") touchesWater = true;
+    };
+
+    // 8 edge-adjacent tiles around 2x2 lot:
+    checkPerim(x - 1, y);
+    checkPerim(x - 1, y + 1);
+    checkPerim(x + 2, y);
+    checkPerim(x + 2, y + 1);
+    checkPerim(x, y - 1);
+    checkPerim(x + 1, y - 1);
+    checkPerim(x, y + 2);
+    checkPerim(x + 1, y + 2);
+
+    // 4 corner tiles
+    checkPerim(x - 1, y - 1);
+    checkPerim(x + 2, y - 1);
+    checkPerim(x - 1, y + 2);
+    checkPerim(x + 2, y + 2);
+
+    if (tool == TOOL_HARBOUR) {
+        if (!touchesWater) {
+            if (outReason) *outReason = "Harbour Must Touch Shoreline Water!";
+            return false;
+        }
+        if (!touchesRoad) {
+            if (outReason) *outReason = "Harbour Requires Road Connection!";
+            return false;
+        }
+        return true;
+    }
+
+    // All other 2x2 buildings require road connection
+    if (!touchesRoad) {
+        if (outReason) *outReason = "Requires Road Connection!";
+        return false;
+    }
+
+    return true;
+}
+
 void Play_Scene::placeTile(int x, int y, BuildTool tool) {
     if (x < 0 || x >= tileMapW || y < 0 || y >= tileMapH) return;
     if (tool == TOOL_NONE) return;
 
-    int cost = 0;
-    switch (tool) {
-        case TOOL_RES_COTTAGES:   cost = 100; break;
-        case TOOL_RES_APARTMENTS: cost = 250; break;
-        case TOOL_RES_TOWER:      cost = 600; break;
-        case TOOL_COM_GROCERY:    cost = 120; break;
-        case TOOL_COM_PLAZA:      cost = 280; break;
-        case TOOL_COM_TOWER:      cost = 750; break;
-        case TOOL_IND_WORKSHOP:   cost = 150; break;
-        case TOOL_IND_FACTORY:    cost = 350; break;
-        case TOOL_IND_TECH:       cost = 800; break;
-        case TOOL_FARM_BARN:      cost = 70;  break;
-        case TOOL_FARM_WINDMILL:  cost = 90;  break;
-        case TOOL_ROAD:           cost = 10;  break;
-        case TOOL_HARBOUR:        cost = 250; break;
-        case TOOL_WATER:          cost = 20;  break;
-        case TOOL_SCHOOL:         cost = 200; break;
-        case TOOL_CHURCH:         cost = 180; break;
-        case TOOL_PARK:           cost = 80;  break;
-        case TOOL_BULLDOZE:       cost = 5;   break;
-        default: return;
+    std::string reason = "";
+    if (!canPlaceTile(x, y, tool, &reason)) {
+        lastPlacementError = reason;
+        placementErrorTimer = 2.5f;
+        return;
     }
 
-    if (money < cost) return;
+    int cost = getToolCost(tool);
 
-    // Helper to demolish any multi-tile or single structure cleanly
     auto demolishAt = [&](int tx, int ty) {
         if (tx < 0 || tx >= tileMapW || ty < 0 || ty >= tileMapH) return;
         if (entities[tx][ty] == NULL) return;
@@ -434,41 +583,28 @@ void Play_Scene::placeTile(int x, int y, BuildTool tool) {
     };
 
     if (tool == TOOL_BULLDOZE) {
-        if (entities[x][y] == NULL || entities[x][y]->getName() == "GrassTile") {
-            return;
-        }
         demolishAt(x, y);
         money -= cost;
         return;
     }
 
-    // 1x1 Roads and Water
-    if (tool == TOOL_ROAD || tool == TOOL_WATER) {
-        demolishAt(x, y);
+    if (tool == TOOL_ROAD) {
         delete entities[x][y];
-        entities[x][y] = NULL;
+        entities[x][y] = new DirtRoad(x, y);
+        DirtRoad* r = dynamic_cast<DirtRoad*>(entities[x][y]);
+        if (r != NULL) r->check();
         money -= cost;
-
-        if (tool == TOOL_ROAD) {
-            entities[x][y] = new DirtRoad(x, y);
-            DirtRoad* r = dynamic_cast<DirtRoad*>(entities[x][y]);
-            if (r != NULL) r->check();
-        } else {
-            entities[x][y] = new WaterTile(x, y);
-        }
         return;
     }
 
-    // 2x2 Structures (Residential, Commercial, Industrial, Farm, School, Church, Park, Harbour)
-    if (x + 1 >= tileMapW || y + 1 >= tileMapH) return;
-
-    // Demolish existing structures across the 2x2 area
-    for (int dx = 0; dx <= 1; dx++) {
-        for (int dy = 0; dy <= 1; dy++) {
-            demolishAt(x + dx, y + dy);
-        }
+    if (tool == TOOL_WATER) {
+        delete entities[x][y];
+        entities[x][y] = new WaterTile(x, y);
+        money -= cost;
+        return;
     }
 
+    // 2x2 Structures: clear the 4 grass tiles
     for (int dx = 0; dx <= 1; dx++) {
         for (int dy = 0; dy <= 1; dy++) {
             delete entities[x + dx][y + dy];
@@ -572,13 +708,12 @@ void Play_Scene::executeMultibuild() {
     BuildTool tool = toolbar.getActiveTool();
     if (tool == TOOL_NONE) return;
 
-    if (tool == TOOL_ROAD || tool == TOOL_WATER) {
+    if (tool == TOOL_ROAD || tool == TOOL_WATER || tool == TOOL_BULLDOZE) {
         auto tiles = computeDragTiles();
         for (const auto& pt : tiles) {
             placeTile(pt.x, pt.y, tool);
         }
     } else {
-        // 2x2 tool or single placement: place at dragStart (or dragCurrent)
         int gx = isDragging ? dragCurrent.x : tileX;
         int gy = isDragging ? dragCurrent.y : tileY;
         placeTile(gx, gy, tool);
@@ -672,21 +807,32 @@ void Play_Scene::renderDragPreview() {
     };
 
     if (tool == TOOL_ROAD || tool == TOOL_WATER) {
-        if (!isDragging) return;
-        auto dragTiles = computeDragTiles();
-        for (const auto& pt : dragTiles) {
+        std::vector<sf::Vector2i> previewTiles;
+        if (isDragging) {
+            previewTiles = computeDragTiles();
+        } else if (tileX >= 0 && tileX < tileMapW && tileY >= 0 && tileY < tileMapH) {
+            previewTiles.push_back({tileX, tileY});
+        }
+
+        for (const auto& pt : previewTiles) {
             int gx = pt.x, gy = pt.y;
             if (gx < 0 || gx >= tileMapW || gy < 0 || gy >= tileMapH) continue;
             if (entities[gx][gy] == NULL || entities[gx][gy]->position == NULL) continue;
             float px = entities[gx][gy]->position->x;
             float py = entities[gx][gy]->position->y;
 
+            std::string reason = "";
+            bool ok = canPlaceTile(gx, gy, tool, &reason);
+            sf::Color fillCol = ok ? sf::Color(46, 204, 113, 85) : sf::Color(231, 76, 60, 110);
+            sf::Color outCol = ok ? sf::Color(46, 204, 113, 230) : sf::Color(231, 76, 60, 245);
+            highlightTile(gx, gy, fillCol, outCol);
+
             std::string tkey = (tool == TOOL_ROAD) ? "road" : "water";
             if (m_textures.count(tkey)) {
                 ghostSprite.setTexture(m_textures[tkey]);
                 ghostSprite.setOrigin(0.f, 0.f);
                 ghostSprite.setScale(2.f, 2.f);
-                ghostSprite.setColor(sf::Color(255, 255, 255, 190));
+                ghostSprite.setColor(ok ? sf::Color(255, 255, 255, 195) : sf::Color(255, 120, 120, 160));
                 ghostSprite.setPosition(px, py);
                 _window.draw(ghostSprite);
             }
@@ -695,24 +841,34 @@ void Play_Scene::renderDragPreview() {
     }
 
     if (tool == TOOL_BULLDOZE) {
-        int gx = isDragging ? dragCurrent.x : tileX;
-        int gy = isDragging ? dragCurrent.y : tileY;
-        if (gx >= 0 && gx < tileMapW && gy >= 0 && gy < tileMapH) {
+        std::vector<sf::Vector2i> previewTiles;
+        if (isDragging) {
+            previewTiles = computeDragTiles();
+        } else if (tileX >= 0 && tileX < tileMapW && tileY >= 0 && tileY < tileMapH) {
+            previewTiles.push_back({tileX, tileY});
+        }
+
+        for (const auto& pt : previewTiles) {
+            int gx = pt.x, gy = pt.y;
+            if (gx < 0 || gx >= tileMapW || gy < 0 || gy >= tileMapH) continue;
             if (entities[gx][gy] != NULL && entities[gx][gy]->position != NULL) {
                 Zone* z = dynamic_cast<Zone*>(entities[gx][gy]);
                 if (z != NULL && z->isMultiTile) {
                     int rx = z->isSubTile ? z->rootX : gx;
                     int ry = z->isSubTile ? z->rootY : gy;
-                    if (rx >= 0 && rx < tileMapW && ry >= 0 && ry < tileMapH) {
+                    if (rx >= 0 && rx + 1 < tileMapW && ry >= 0 && ry + 1 < tileMapH) {
                         for (int dx = 0; dx <= 1; dx++) {
                             for (int dy = 0; dy <= 1; dy++) {
-                                highlightTile(rx + dx, ry + dy, sf::Color(255, 60, 60, 140), sf::Color::Red);
+                                highlightTile(rx + dx, ry + dy, sf::Color(231, 76, 60, 130), sf::Color(231, 76, 60, 245));
                             }
                         }
-                        return;
+                        continue;
                     }
                 }
-                highlightTile(gx, gy, sf::Color(255, 60, 60, 140), sf::Color::Red);
+                bool canBulldoze = (entities[gx][gy]->getName() != "GrassTile");
+                sf::Color fillCol = canBulldoze ? sf::Color(231, 76, 60, 130) : sf::Color(120, 120, 120, 60);
+                sf::Color outCol = canBulldoze ? sf::Color(231, 76, 60, 245) : sf::Color(140, 140, 140, 150);
+                highlightTile(gx, gy, fillCol, outCol);
             }
         }
         return;
@@ -727,10 +883,15 @@ void Play_Scene::renderDragPreview() {
             float px = entities[gx][gy]->position->x;
             float py = entities[gx][gy]->position->y;
 
+            std::string reason = "";
+            bool ok = canPlaceTile(gx, gy, tool, &reason);
+            sf::Color fillCol = ok ? sf::Color(46, 204, 113, 85) : sf::Color(231, 76, 60, 110);
+            sf::Color outCol = ok ? sf::Color(46, 204, 113, 230) : sf::Color(231, 76, 60, 245);
+
             // Highlight all 4 constituent 2:1 isometric tile diamonds
             for (int dx = 0; dx <= 1; dx++) {
                 for (int dy = 0; dy <= 1; dy++) {
-                    highlightTile(gx + dx, gy + dy, sf::Color(46, 204, 113, 70), sf::Color(46, 204, 113, 220));
+                    highlightTile(gx + dx, gy + dy, fillCol, outCol);
                 }
             }
 
@@ -764,7 +925,7 @@ void Play_Scene::renderDragPreview() {
                     ghostSprite.setOrigin(0.f, 0.f);
                 }
                 ghostSprite.setScale(2.f, 2.f);
-                ghostSprite.setColor(sf::Color(255, 255, 255, 195));
+                ghostSprite.setColor(ok ? sf::Color(255, 255, 255, 195) : sf::Color(255, 120, 120, 150));
                 ghostSprite.setPosition(px, py);
                 _window.draw(ghostSprite);
             }
@@ -776,6 +937,31 @@ void Play_Scene::renderHUD(float deltaTime) {
     _window.setView(_window.getDefaultView());
 
     const sf::Font& font = m_fonts["../assets/Hack.ttf"];
+
+    // -------------------------------------------------------------
+    // 0. Placement Error Banner
+    // -------------------------------------------------------------
+    if (placementErrorTimer > 0.f && !lastPlacementError.empty()) {
+        float bannerW = 460.f;
+        float bannerH = 34.f;
+        float bannerX = (static_cast<float>(WINDOW_W) - bannerW) / 2.f;
+        float bannerY = 56.f;
+
+        sf::RectangleShape banner(sf::Vector2f(bannerW, bannerH));
+        banner.setPosition(bannerX, bannerY);
+        banner.setFillColor(sf::Color(38, 14, 18, 235));
+        banner.setOutlineColor(sf::Color(231, 76, 60));
+        banner.setOutlineThickness(1.5f);
+        _window.draw(banner);
+
+        sf::Text alertText;
+        alertText.setFont(font);
+        alertText.setCharacterSize(13);
+        alertText.setFillColor(sf::Color(255, 190, 190));
+        alertText.setString("[!] Cannot Build: " + lastPlacementError);
+        alertText.setPosition(bannerX + 16.f, bannerY + 8.f);
+        _window.draw(alertText);
+    }
 
     // -------------------------------------------------------------
     // 1. TheoTown Top Header Bar (Fixed at top screen space)

@@ -47,12 +47,29 @@ mapping['commercial'] = mapping['com_t1_v1']
 mapping['industrial'] = mapping['ind_t1_v1']
 mapping['farm']       = mapping['farm_v1']
 
+def mask_iso_base(im):
+    """
+    Clips pixels below the 2:1 isometric lot curb lines:
+    Left front edge: (0, H-16) to (32, H) -> slope = 0.5
+    Right front edge: (32, H) to (48, H-8) -> slope = -0.5
+    Prevents any sprite pixels from spilling onto roads in front!
+    """
+    w, h = im.size
+    pixels = im.load()
+    for x in range(w):
+        if x <= 32:
+            max_y = (h - 16) + 0.5 * x
+        else:
+            max_y = h - 0.5 * (x - 32)
+        for y in range(int(max_y) + 1, h):
+            pixels[x, y] = (0, 0, 0, 0)
+    return im
+
 print(f"Installing {len(mapping)} genuine TheoTown building sprites to {sprites_dir}...")
 
 for key, fname in mapping.items():
     src_path = os.path.join(out_dir, fname)
     if not os.path.exists(src_path):
-        print(f"ERROR: missing source file {src_path}")
         continue
     src = Image.open(src_path).convert('RGBA')
     w = 48
@@ -61,14 +78,13 @@ for key, fname in mapping.items():
     
     final_h = max(44, h)
     canvas = Image.new('RGBA', (48, final_h), (0, 0, 0, 0))
-    # Bottom align
     canvas.paste(resized, (0, final_h - h))
+    masked = mask_iso_base(canvas)
     
     dst_path = os.path.join(sprites_dir, f"{key}.png")
-    canvas.save(dst_path)
-    print(f"  Installed {key}.png (src: {fname}, size: {w}x{final_h})")
+    masked.save(dst_path)
+    print(f"  Installed {key}.png (src: {fname}, size: {w}x{final_h}, curb-masked)")
 
-# Also copy to build/assets/sprites if build directory exists
 build_sprites_dir = 'build/assets/sprites'
 if os.path.exists(build_sprites_dir):
     for f in os.listdir(sprites_dir):

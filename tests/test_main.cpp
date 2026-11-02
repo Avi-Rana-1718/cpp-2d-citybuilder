@@ -19,6 +19,7 @@
 #include "../game/entities/roads/DirtRoad.hpp"
 #include "../game/simulation/HappinessSystem.hpp"
 #include "../game/ui/Toolbar.hpp"
+#include "../game/scenes/Play_Scene.hpp"
 
 // RAII helper to silence stdout logs from entity constructors/destructors during tests
 struct ScopedCoutSilence {
@@ -871,6 +872,148 @@ TEST_CASE(Test_World_FullBuildingCoverage) {
 
     hb->checkValid();
     ASSERT_TRUE(hb->isActive);
+
+    clearTestGrid();
+}
+
+// -------------------------------------------------------------
+// 14. TheoTown Placement Restrictions & Validation Tests
+// -------------------------------------------------------------
+TEST_CASE(Test_TheoTown_CannotBuildOnRoad) {
+    clearTestGrid();
+    ScopedCoutSilence silence;
+
+    Play_Scene scene;
+    money = 5000;
+
+    // Place a road at (5, 5)
+    delete entities[5][5];
+    entities[5][5] = new DirtRoad(5, 5);
+
+    // Try to place a 2x2 building covering (4, 4) to (5, 5)
+    std::string reason = "";
+    bool canBuild = scene.canPlaceTile(4, 4, TOOL_RES_COTTAGES, &reason);
+    ASSERT_FALSE(canBuild);
+    ASSERT_TRUE(reason.find("Blocked by Road") != std::string::npos);
+
+    // Try to place another road directly over existing road
+    reason = "";
+    bool canRoad = scene.canPlaceTile(5, 5, TOOL_ROAD, &reason);
+    ASSERT_FALSE(canRoad);
+    ASSERT_TRUE(reason.find("Road Already Built") != std::string::npos);
+
+    clearTestGrid();
+}
+
+TEST_CASE(Test_TheoTown_CannotBuildOnWater) {
+    clearTestGrid();
+    ScopedCoutSilence silence;
+
+    Play_Scene scene;
+    money = 5000;
+
+    // Place water at (6, 6)
+    delete entities[6][6];
+    entities[6][6] = new WaterTile(6, 6);
+
+    // Try to place a 2x2 building covering (5, 5) to (6, 6)
+    std::string reason = "";
+    bool canBuild = scene.canPlaceTile(5, 5, TOOL_COM_GROCERY, &reason);
+    ASSERT_FALSE(canBuild);
+    ASSERT_TRUE(reason.find("Blocked by Water") != std::string::npos);
+
+    // Try to build a road on water
+    reason = "";
+    bool canRoad = scene.canPlaceTile(6, 6, TOOL_ROAD, &reason);
+    ASSERT_FALSE(canRoad);
+    ASSERT_TRUE(reason.find("Cannot Build Road on Water") != std::string::npos);
+
+    clearTestGrid();
+}
+
+TEST_CASE(Test_TheoTown_RequiresRoadConnection) {
+    clearTestGrid();
+    ScopedCoutSilence silence;
+
+    Play_Scene scene;
+    money = 5000;
+
+    // Grid is pure grass with zero roads
+    std::string reason = "";
+    bool canBuild = scene.canPlaceTile(5, 5, TOOL_RES_COTTAGES, &reason);
+    ASSERT_FALSE(canBuild);
+    ASSERT_TRUE(reason.find("Requires Road Connection") != std::string::npos);
+
+    // Now place an adjacent road on the perimeter at (4, 5)
+    delete entities[4][5];
+    entities[4][5] = new DirtRoad(4, 5);
+
+    // Now placement must be valid!
+    reason = "";
+    canBuild = scene.canPlaceTile(5, 5, TOOL_RES_COTTAGES, &reason);
+    ASSERT_TRUE(canBuild);
+
+    clearTestGrid();
+}
+
+TEST_CASE(Test_TheoTown_HarbourShorelineRules) {
+    clearTestGrid();
+    ScopedCoutSilence silence;
+
+    Play_Scene scene;
+    money = 5000;
+
+    // 1. Place road at (4, 5), but NO water nearby
+    delete entities[4][5];
+    entities[4][5] = new DirtRoad(4, 5);
+
+    std::string reason = "";
+    bool canBuild = scene.canPlaceTile(5, 5, TOOL_HARBOUR, &reason);
+    ASSERT_FALSE(canBuild);
+    ASSERT_TRUE(reason.find("Harbour Must Touch Shoreline Water") != std::string::npos);
+
+    // 2. Now place water at (7, 5) on the opposite perimeter
+    delete entities[7][5];
+    entities[7][5] = new WaterTile(7, 5);
+
+    // Now harbour touches road at (4, 5) and touches water at (7, 5) -> Valid shoreline!
+    reason = "";
+    canBuild = scene.canPlaceTile(5, 5, TOOL_HARBOUR, &reason);
+    ASSERT_TRUE(canBuild);
+
+    clearTestGrid();
+}
+
+TEST_CASE(Test_TheoTown_InsufficientFundsAndBulldoze) {
+    clearTestGrid();
+    ScopedCoutSilence silence;
+
+    Play_Scene scene;
+
+    // Setup road connection
+    delete entities[4][5];
+    entities[4][5] = new DirtRoad(4, 5);
+
+    // Set funds to $30 (Cottages cost $100)
+    money = 30;
+    std::string reason = "";
+    bool canBuild = scene.canPlaceTile(5, 5, TOOL_RES_COTTAGES, &reason);
+    ASSERT_FALSE(canBuild);
+    ASSERT_TRUE(reason.find("Insufficient Funds") != std::string::npos);
+
+    // Restore funds
+    money = 5000;
+
+    // Bulldozer: cannot bulldoze empty grass
+    reason = "";
+    bool canBulldozeGrass = scene.canPlaceTile(8, 8, TOOL_BULLDOZE, &reason);
+    ASSERT_FALSE(canBulldozeGrass);
+    ASSERT_TRUE(reason.find("Already Clear Ground") != std::string::npos);
+
+    // Bulldozer: CAN bulldoze existing road
+    reason = "";
+    bool canBulldozeRoad = scene.canPlaceTile(4, 5, TOOL_BULLDOZE, &reason);
+    ASSERT_TRUE(canBulldozeRoad);
 
     clearTestGrid();
 }
