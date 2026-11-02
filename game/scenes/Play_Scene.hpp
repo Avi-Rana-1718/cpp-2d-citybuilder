@@ -52,7 +52,8 @@ class Play_Scene : public Scene {
     Entity* uiDebug = NULL;
 
     float lastActionTime = 0.f;
-    float cameraSpeed = 600.f;
+    float cameraSpeed = 800.f;
+    float currentZoom = 1.0f;
     float simAccumulator = 0.f;
 
     // Drag-to-multibuild state
@@ -113,7 +114,7 @@ void Play_Scene::init() {
     townDemand[0] = 1000;
     townDemand[1] = 500;
     townDemand[2] = 400;
-    money = 5000;
+    money = 50000;
     lastActionTime = 0.f;
 
     // Legacy Window pointers preserved for backwards compatibility and test stability
@@ -161,16 +162,17 @@ void Play_Scene::init() {
     vehicleSystem.clear();
     pedestrianSystem.clear();
     buildingAnimationSystem.clear();
-    for (int v = 0; v < 6; v++) {
+    for (int v = 0; v < 25; v++) {
         vehicleSystem.spawnVehicle();
     }
-    for (int p = 0; p < 8; p++) {
+    for (int p = 0; p < 30; p++) {
         pedestrianSystem.spawnCitizen();
     }
 
     // Center camera on city center
+    currentZoom = 1.0f;
     view.setSize(sf::Vector2f(static_cast<float>(WINDOW_W), static_cast<float>(WINDOW_H)));
-    view.setCenter(sf::Vector2f(520.f, 500.f));
+    view.setCenter(sf::Vector2f(1050.f, 1500.f));
     _window.setView(view);
 }
 
@@ -224,22 +226,42 @@ void Play_Scene::update(float deltaTime) {
 }
 
 void Play_Scene::handleCameraMovement(float deltaTime) {
+    float curSpeed = cameraSpeed;
+    if (sf::Keyboard::isKeyPressed(sf::Keyboard::LShift) || sf::Keyboard::isKeyPressed(sf::Keyboard::RShift)) {
+        curSpeed *= 2.2f;
+    }
+
     sf::Vector2f camMove(0.f, 0.f);
     if (sf::Keyboard::isKeyPressed(sf::Keyboard::W) || sf::Keyboard::isKeyPressed(sf::Keyboard::Up)) {
-        camMove.y -= cameraSpeed * deltaTime;
+        camMove.y -= curSpeed * deltaTime;
     }
     if (sf::Keyboard::isKeyPressed(sf::Keyboard::S) || sf::Keyboard::isKeyPressed(sf::Keyboard::Down)) {
-        camMove.y += cameraSpeed * deltaTime;
+        camMove.y += curSpeed * deltaTime;
     }
     if (sf::Keyboard::isKeyPressed(sf::Keyboard::A) || sf::Keyboard::isKeyPressed(sf::Keyboard::Left)) {
-        camMove.x -= cameraSpeed * deltaTime;
+        camMove.x -= curSpeed * deltaTime;
     }
     if (sf::Keyboard::isKeyPressed(sf::Keyboard::D) || sf::Keyboard::isKeyPressed(sf::Keyboard::Right)) {
-        camMove.x += cameraSpeed * deltaTime;
+        camMove.x += curSpeed * deltaTime;
     }
 
     if (camMove.x != 0.f || camMove.y != 0.f) {
         view.move(camMove);
+    }
+
+    // Zoom controls: Q / PageUp / Equal to zoom in, E / PageDown / Dash to zoom out
+    bool zoomChanged = false;
+    if (sf::Keyboard::isKeyPressed(sf::Keyboard::Q) || sf::Keyboard::isKeyPressed(sf::Keyboard::PageUp) || sf::Keyboard::isKeyPressed(sf::Keyboard::Equal)) {
+        currentZoom = std::max(0.4f, currentZoom - 0.9f * deltaTime);
+        zoomChanged = true;
+    }
+    if (sf::Keyboard::isKeyPressed(sf::Keyboard::E) || sf::Keyboard::isKeyPressed(sf::Keyboard::PageDown) || sf::Keyboard::isKeyPressed(sf::Keyboard::Dash)) {
+        currentZoom = std::min(3.2f, currentZoom + 0.9f * deltaTime);
+        zoomChanged = true;
+    }
+
+    if (zoomChanged) {
+        view.setSize(static_cast<float>(WINDOW_W) * currentZoom, static_cast<float>(WINDOW_H) * currentZoom);
     }
 }
 
@@ -262,8 +284,8 @@ void Play_Scene::handleToolHotkeys() {
     if (sf::Keyboard::isKeyPressed(sf::Keyboard::H)) {
         toolbar.setActiveTool(TOOL_HARBOUR);
     }
-    if (sf::Keyboard::isKeyPressed(sf::Keyboard::W) && !sf::Keyboard::isKeyPressed(sf::Keyboard::LShift)) {
-        // Only trigger water tool if shift is not pressed (to allow WASD pan)
+    if (sf::Keyboard::isKeyPressed(sf::Keyboard::W) && !sf::Keyboard::isKeyPressed(sf::Keyboard::LShift) && !sf::Keyboard::isKeyPressed(sf::Keyboard::RShift)) {
+        // Only trigger water tool if shift is not pressed (to allow WASD fast pan)
         if (toolbar.getActiveTool() == TOOL_NONE) {
             toolbar.setActiveTool(TOOL_WATER);
         }
@@ -297,8 +319,17 @@ bool Play_Scene::handleTileHover(const sf::Vector2i& mousePixel, bool mouseOverU
     int hoveredX = -1;
     int hoveredY = -1;
 
-    for (int i = 0; i < tileMapW; i++) {
-        for (int j = 0; j < tileMapH; j++) {
+    // Fast O(1) inverse isometric coordinate estimate
+    int estI = static_cast<int>(std::round((mouseWorld.x - 32.f) / 32.f));
+    int estJ = static_cast<int>(std::round((mouseWorld.y - 16.f * estI - 16.f) / 32.f));
+
+    int minI = std::max(0, estI - 2);
+    int maxI = std::min(tileMapW - 1, estI + 2);
+    int minJ = std::max(0, estJ - 2);
+    int maxJ = std::min(tileMapH - 1, estJ + 2);
+
+    for (int i = minI; i <= maxI; i++) {
+        for (int j = minJ; j <= maxJ; j++) {
             if (entities[i][j] == NULL || entities[i][j]->position == NULL) continue;
             float px = entities[i][j]->position->x;
             float py = entities[i][j]->position->y;
@@ -768,10 +799,27 @@ void Play_Scene::renderWorld(float deltaTime) {
         }
     }
 
+    // Viewport frustum culling bounds
+    sf::Vector2f vCenter = view.getCenter();
+    sf::Vector2f vSize = view.getSize();
+    float viewL = vCenter.x - vSize.x / 2.f - 64.f;
+    float viewR = vCenter.x + vSize.x / 2.f + 64.f;
+    float viewT = vCenter.y - vSize.y / 2.f - 200.f; // Skyscraper height margin
+    float viewB = vCenter.y + vSize.y / 2.f + 64.f;
+
+    auto isVisible = [&](float px, float py) -> bool {
+        return (px + tileSizeX >= viewL && px <= viewR &&
+                py + tileSizeY + 140.f >= viewT && py <= viewB);
+    };
+
     // PASS 1: Render All Ground Tiles (Grass, Roads, Water, Zone Bases)
     for (int i = 0; i < tileMapW; i++) {
         for (int j = 0; j < tileMapH; j++) {
-            if (entities[i][j] != NULL) {
+            if (entities[i][j] != NULL && entities[i][j]->position != NULL) {
+                float px = entities[i][j]->position->x;
+                float py = entities[i][j]->position->y;
+                if (!isVisible(px, py)) continue;
+
                 Zone* z = dynamic_cast<Zone*>(entities[i][j]);
                 if (z != NULL) {
                     z->drawGround(_window);
@@ -790,10 +838,14 @@ void Play_Scene::renderWorld(float deltaTime) {
         for (int i = 0; i <= depth; i++) {
             int j = depth - i;
             if (i < tileMapW && j >= 0 && j < tileMapH) {
-                if (entities[i][j] != NULL) {
+                if (entities[i][j] != NULL && entities[i][j]->position != NULL) {
                     Zone* z = dynamic_cast<Zone*>(entities[i][j]);
                     if (z != NULL && !z->isSubTile) {
-                        z->drawBuilding(_window);
+                        float px = z->position->x;
+                        float py = z->position->y;
+                        if (isVisible(px, py)) {
+                            z->drawBuilding(_window);
+                        }
                     }
                 }
             }
@@ -1270,61 +1322,155 @@ void Play_Scene::buildTestWorld() {
         }
     };
 
-    // 1. 1x1 Roads Network
-    // North Avenue (y = 3)
-    for (int x = 1; x <= 18; x++) setRoad(x, 3);
-    // Central Boulevard (y = 6)
-    for (int x = 1; x <= 18; x++) setRoad(x, 6);
-    // South Shore Road (y = 9)
-    for (int x = 1; x <= 18; x++) setRoad(x, 9);
-    // West Avenue Link
-    for (int y = 3; y <= 9; y++) setRoad(1, y);
-    // East Avenue Link
-    for (int y = 3; y <= 9; y++) setRoad(18, y);
+    // 1. 1x1 Roads Network Across 64x64 Metropolis
+    // 8 Major Horizontal Avenues
+    for (int x = 2; x <= 61; x++) {
+        setRoad(x, 4);   // North Suburb Boulevard
+        setRoad(x, 10);  // North Urban Avenue
+        setRoad(x, 16);  // Highrise Civic Expressway
+        setRoad(x, 22);  // Downtown Metro Boulevard
+        setRoad(x, 28);  // Commercial Midtown Avenue
+        setRoad(x, 34);  // Concourse Parkway
+        setRoad(x, 40);  // Industrial Arterial
+        setRoad(x, 48);  // South Ocean Coastal Highway
+    }
 
-    // 2. Row 1 (y = 1): Residential Sector — ALL BUILDINGS SIDE BY SIDE!
-    set2x2(2,  1, TOOL_RES_COTTAGES,   1, 1); // T1 Suburban Cottages v1
-    set2x2(4,  1, TOOL_RES_COTTAGES,   1, 2); // T1 Bungalow Homestead v2
-    set2x2(6,  1, TOOL_RES_APARTMENTS, 2, 1); // T2 Brick Brownstone Apartments v1
-    set2x2(8,  1, TOOL_RES_APARTMENTS, 2, 2); // T2 Urban Condominiums v2
-    set2x2(10, 1, TOOL_RES_TOWER,      3, 1); // T3 Highrise Luxury Tower v1
-    set2x2(12, 1, TOOL_RES_TOWER,      3, 2); // T3 Twin Highrise Plaza v2
-    set2x2(14, 1, TOOL_PARK);                 // Grand Nature Park
-    set2x2(16, 1, TOOL_CHURCH);               // Community Cathedral
+    // 6 Major Vertical Boulevards Connecting All Districts
+    for (int y = 4; y <= 48; y++) {
+        setRoad(2, y);   // West Coastal Highway
+        setRoad(14, y);  // West Metro Crossway
+        setRoad(26, y);  // Central Capitol Crossway
+        setRoad(38, y);  // East Civic Parkway
+        setRoad(50, y);  // Industrial Express Link
+        setRoad(61, y);  // Far East Perimeter Link
+    }
 
-    // 3. Row 2 (y = 4): Commercial Downtown — ALL BUILDINGS SIDE BY SIDE!
-    set2x2(2,  4, TOOL_COM_GROCERY, 1, 1); // T1 Corner Grocery & Bakery v1
-    set2x2(4,  4, TOOL_COM_GROCERY, 1, 2); // T1 Local Diner & Mini Mart v2
-    set2x2(6,  4, TOOL_COM_PLAZA,   2, 1); // T2 Shopping Plaza Arcade v1
-    set2x2(8,  4, TOOL_COM_PLAZA,   2, 2); // T2 Department Store Arcade v2
-    set2x2(10, 4, TOOL_COM_TOWER,   3, 1); // T3 Corporate Banking Highrise v1
-    set2x2(12, 4, TOOL_COM_TOWER,   3, 2); // T3 International Financial Center v2
-    set2x2(14, 4, TOOL_SCHOOL);             // Elementary School
-    set2x2(16, 4, TOOL_PARK);               // Downtown Plaza Park
+    // 2. District 1 (y = 1): Northern Residential Cottages & Bungalows
+    for (int x = 4; x <= 58; x += 2) {
+        if (x == 14 || x == 26 || x == 38 || x == 50) continue; // Skip vertical road intersections
+        if (x % 8 == 0) {
+            set2x2(x, 1, TOOL_PARK);
+        } else if (x % 8 == 2) {
+            set2x2(x, 1, TOOL_CHURCH);
+        } else if (x % 4 == 0) {
+            set2x2(x, 1, TOOL_RES_COTTAGES, 1, 2); // Bungalow Homestead
+        } else {
+            set2x2(x, 1, TOOL_RES_COTTAGES, 1, 1); // Suburban Cottages
+        }
+    }
 
-    // 4. Row 3 (y = 7): Agriculture & Industry — ALL BUILDINGS SIDE BY SIDE!
-    set2x2(2,  7, TOOL_FARM_BARN,     1, 1); // Barn & Wheat Silo v1
-    set2x2(4,  7, TOOL_FARM_WINDMILL, 1, 2); // Windmill Homestead v2
-    set2x2(6,  7, TOOL_IND_WORKSHOP,   1, 1); // T1 Scrap Workshop & Foundry v1
-    set2x2(8,  7, TOOL_IND_WORKSHOP,   1, 2); // T1 Warehouse & Logistics Depot v2
-    set2x2(10, 7, TOOL_IND_FACTORY,    2, 1); // T2 Manufacturing Plant v1
-    set2x2(12, 7, TOOL_IND_FACTORY,    2, 2); // T2 Heavy Machine Assembly v2
-    set2x2(14, 7, TOOL_IND_TECH,       3, 1); // T3 Microchip Clean-Fab Hub v1
-    set2x2(16, 7, TOOL_IND_TECH,       3, 2); // T3 Robotics Automation Facility v2
+    // 3. District 2 (y = 7): Residential Brownstones & Urban Condominiums
+    for (int x = 4; x <= 58; x += 2) {
+        if (x == 14 || x == 26 || x == 38 || x == 50) continue;
+        if (x % 12 == 0) {
+            set2x2(x, 7, TOOL_SCHOOL);
+        } else if (x % 8 == 0) {
+            set2x2(x, 7, TOOL_PARK);
+        } else if (x % 4 == 0) {
+            set2x2(x, 7, TOOL_RES_APARTMENTS, 2, 2); // Urban Condominiums
+        } else {
+            set2x2(x, 7, TOOL_RES_APARTMENTS, 2, 1); // Brick Brownstones
+        }
+    }
 
-    // 5. Row 4 (y = 10): Shoreline Harbours & Water — ALL HARBOURS SIDE BY SIDE!
-    for (int x = 3; x < tileMapW; x++) {
-        for (int y = 12; y < tileMapH; y++) {
+    // 4. District 3 (y = 13): Highrise Luxury Towers & Sky-Plazas
+    for (int x = 4; x <= 58; x += 2) {
+        if (x == 14 || x == 26 || x == 38 || x == 50) continue;
+        if (x % 12 == 4) {
+            set2x2(x, 13, TOOL_PARK);
+        } else if (x % 8 == 0) {
+            set2x2(x, 13, TOOL_CHURCH);
+        } else if (x % 4 == 0) {
+            set2x2(x, 13, TOOL_RES_TOWER, 3, 2); // Twin Highrise Plaza
+        } else {
+            set2x2(x, 13, TOOL_RES_TOWER, 3, 1); // Highrise Luxury Tower
+        }
+    }
+
+    // 5. District 4 (y = 19): Downtown Corporate Banking Highrises & Financial Towers
+    for (int x = 4; x <= 58; x += 2) {
+        if (x == 14 || x == 26 || x == 38 || x == 50) continue;
+        if (x % 12 == 0) {
+            set2x2(x, 19, TOOL_PARK);
+        } else if (x % 8 == 0) {
+            set2x2(x, 19, TOOL_SCHOOL);
+        } else if (x % 4 == 0) {
+            set2x2(x, 19, TOOL_COM_TOWER, 3, 2); // International Financial Center
+        } else {
+            set2x2(x, 19, TOOL_COM_TOWER, 3, 1); // Corporate Banking Highrise
+        }
+    }
+
+    // 6. District 5 (y = 25): Shopping Plazas, Diners, Groceries, & Retail Arcades
+    for (int x = 4; x <= 58; x += 2) {
+        if (x == 14 || x == 26 || x == 38 || x == 50) continue;
+        if (x % 12 == 6) {
+            set2x2(x, 25, TOOL_PARK);
+        } else if (x % 8 == 4) {
+            set2x2(x, 25, TOOL_COM_GROCERY, 1, 2); // Local Diner & Mini Mart
+        } else if (x % 8 == 0) {
+            set2x2(x, 25, TOOL_COM_GROCERY, 1, 1); // Corner Grocery & Bakery
+        } else if (x % 4 == 0) {
+            set2x2(x, 25, TOOL_COM_PLAZA, 2, 2);   // Department Store Arcade
+        } else {
+            set2x2(x, 25, TOOL_COM_PLAZA, 2, 1);   // Shopping Plaza Arcade
+        }
+    }
+
+    // 7. District 6 (y = 31): West Farmlands & East Industrial Manufacturing
+    for (int x = 4; x <= 58; x += 2) {
+        if (x == 14 || x == 26 || x == 38 || x == 50) continue;
+        if (x < 26) {
+            // West Agriculture
+            if (x % 4 == 0) {
+                set2x2(x, 31, TOOL_FARM_WINDMILL, 1, 2); // Windmill Homestead
+            } else {
+                set2x2(x, 31, TOOL_FARM_BARN, 1, 1);     // Barn & Wheat Silo
+            }
+        } else {
+            // East Industry (T1 Workshops & T2 Manufacturing)
+            if (x % 8 == 0) {
+                set2x2(x, 31, TOOL_IND_FACTORY, 2, 2);   // Heavy Machine Assembly
+            } else if (x % 6 == 0) {
+                set2x2(x, 31, TOOL_IND_FACTORY, 2, 1);   // Manufacturing Plant
+            } else if (x % 4 == 0) {
+                set2x2(x, 31, TOOL_IND_WORKSHOP, 1, 2);  // Warehouse Depot
+            } else {
+                set2x2(x, 31, TOOL_IND_WORKSHOP, 1, 1);  // Scrap Workshop & Foundry
+            }
+        }
+    }
+
+    // 8. District 7 (y = 37): West Windmill Homesteads & East Robotics / Clean-Fab Hubs
+    for (int x = 4; x <= 58; x += 2) {
+        if (x == 14 || x == 26 || x == 38 || x == 50) continue;
+        if (x < 26) {
+            if (x % 4 == 0) {
+                set2x2(x, 37, TOOL_FARM_WINDMILL, 1, 2);
+            } else {
+                set2x2(x, 37, TOOL_FARM_BARN, 1, 1);
+            }
+        } else {
+            if (x % 4 == 0) {
+                set2x2(x, 37, TOOL_IND_TECH, 3, 2);      // Robotics Automation Facility
+            } else {
+                set2x2(x, 37, TOOL_IND_TECH, 3, 1);      // Microchip Clean-Fab Hub
+            }
+        }
+    }
+
+    // 9. District 8 (y = 49): Shoreline Harbours & Deep Ocean Water
+    for (int x = 2; x < tileMapW; x++) {
+        for (int y = 51; y < tileMapH; y++) {
             delete entities[x][y];
             entities[x][y] = new WaterTile(x, y);
         }
     }
-    set2x2(4,  10, TOOL_HARBOUR); // Trade Harbour 1
-    set2x2(6,  10, TOOL_HARBOUR); // Trade Harbour 2
-    set2x2(8,  10, TOOL_HARBOUR); // Trade Harbour 3
-    set2x2(10, 10, TOOL_HARBOUR); // Trade Harbour 4
-    set2x2(12, 10, TOOL_HARBOUR); // Trade Harbour 5
-    set2x2(14, 10, TOOL_HARBOUR); // Trade Harbour 6
+
+    // 14 Trade Harbours side-by-side along the coastal avenue
+    for (int hx = 4; hx <= 56; hx += 4) {
+        set2x2(hx, 49, TOOL_HARBOUR);
+    }
 
     // 8. Connect and autotile all roads
     for (int i = 0; i < tileMapW; i++) {

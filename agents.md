@@ -35,7 +35,8 @@ The binary `citybuilder.exe`, test runner `citybuilder_tests.exe`, required SFML
 | **Mouse Hover** | Highlight and select tile under cursor (isometric diamond collision) |
 | **Left Click + Drag** | **Drag-to-Multibuild** — drag an isometric diamond area or road path with live ghost preview, builds on release |
 | **Right Click** | Cancel active drag or return to `Inspect` mode |
-| **`W / A / S / D`** or **Arrow Keys** | Pan camera smoothly across the world |
+| **`W / A / S / D`** or **Arrow Keys** | Pan camera smoothly across the world (`Shift` for fast pan) |
+| **`Q / E`** or **`+ / -`** | Smooth camera zoom in (`Q` / `+`) and zoom out (`E` / `-`) |
 | **Hotkeys** | `Esc` (Inspect), `R` (Residential), `C` (Commercial), `I` (Industrial), `F` (Farms), `1` (School), `2` (Church), `3` (Park), `Space` (Dirt Road), `H` (Harbour), `W` (Water), `X` (Demolish) |
 
 ---
@@ -47,7 +48,7 @@ GameEngine
 └── Main (game/main.hpp)
     └── Scene (src/Scene.hpp)
         └── Play_Scene (game/scenes/Play_Scene.hpp)
-            ├── Entity Grid (entities[20][20])
+            ├── Entity Grid (entities[64][64])
             │   └── Zone
             │       ├── GrassTile (GlassTile.hpp)
             │       ├── ResidentalZone (T1-T3)
@@ -105,7 +106,7 @@ Shared mutable state lives in `_global.hpp`.
 |---|---|---|
 | `_window` | `sf::RenderWindow` | SFML window instance (1500 × 900) |
 | `view` | `sf::View` | Primary 2D world camera viewport |
-| `entities[20][20]` | `Entity*[][]` | 20×20 isometric tile grid |
+| `entities[64][64]` | `Entity*[][]` | 64×64 isometric tile grid (4,096 tiles, 10x size) |
 | `ui` | `std::vector<Entity*>` | UI entities rendered in fixed screen space |
 | `bg` | `std::vector<Entity*>` | Background layer entities |
 | `money` | `int` | Player municipal funds (starts at $5000 in Play_Scene) |

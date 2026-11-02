@@ -33,7 +33,7 @@ class PedestrianSystem {
 private:
     std::vector<Citizen> citizens;
     float spawnAccumulator = 0.0f;
-    int maxCitizens = 16;
+    int maxCitizens = 50;
 
 public:
     PedestrianSystem() = default;

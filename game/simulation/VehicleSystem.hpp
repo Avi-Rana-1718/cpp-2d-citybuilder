@@ -40,7 +40,7 @@ class VehicleSystem {
 private:
     std::vector<Vehicle> vehicles;
     float spawnAccumulator = 0.0f;
-    int maxVehicles = 12;
+    int maxVehicles = 40;
 
 public:
     VehicleSystem() = default;

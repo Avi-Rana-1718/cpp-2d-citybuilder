@@ -28,8 +28,8 @@ int tileY=0;
 
 float zoom=1.0;
 
-const int tileMapW=20;
-const int tileMapH=20;
+const int tileMapW=64;
+const int tileMapH=64;
 const int tileSizeX=64;
 const int tileSizeY=32;
 
