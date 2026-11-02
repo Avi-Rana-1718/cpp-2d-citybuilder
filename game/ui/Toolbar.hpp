@@ -89,13 +89,13 @@ public:
         float zGap = 10.f;
         float zStartX = dockBounds.left + (dockW - (4 * zBtnW + 3 * zGap)) / 2.f;
 
-        allTools.push_back({TOOL_RESIDENTIAL, "RESIDENTIAL", "Zone [R]", sf::Color(46, 204, 113), ToolbarCategory::ZONING,
+        allTools.push_back({TOOL_RESIDENTIAL, "RESIDENTIAL", "[2x2] Zone [R] ($100)", sf::Color(46, 204, 113), ToolbarCategory::ZONING,
             sf::FloatRect(zStartX + 0 * (zBtnW + zGap), btnY, zBtnW, btnH)});
-        allTools.push_back({TOOL_COMMERCIAL, "COMMERCIAL", "Zone [C]", sf::Color(241, 196, 15), ToolbarCategory::ZONING,
+        allTools.push_back({TOOL_COMMERCIAL, "COMMERCIAL", "[2x2] Zone [C] ($100)", sf::Color(241, 196, 15), ToolbarCategory::ZONING,
             sf::FloatRect(zStartX + 1 * (zBtnW + zGap), btnY, zBtnW, btnH)});
-        allTools.push_back({TOOL_INDUSTRIAL, "INDUSTRIAL", "Zone [I]", sf::Color(230, 126, 34), ToolbarCategory::ZONING,
+        allTools.push_back({TOOL_INDUSTRIAL, "INDUSTRIAL", "[2x2] Zone [I] ($120)", sf::Color(230, 126, 34), ToolbarCategory::ZONING,
             sf::FloatRect(zStartX + 2 * (zBtnW + zGap), btnY, zBtnW, btnH)});
-        allTools.push_back({TOOL_FARM, "FARMS", "Agri [F]", sf::Color(135, 211, 124), ToolbarCategory::ZONING,
+        allTools.push_back({TOOL_FARM, "FARMS", "[2x2] Agri [F] ($60)", sf::Color(135, 211, 124), ToolbarCategory::ZONING,
             sf::FloatRect(zStartX + 3 * (zBtnW + zGap), btnY, zBtnW, btnH)});
 
         // Civics Category (3 tools)
@@ -103,11 +103,11 @@ public:
         float cGap = 12.f;
         float cStartX = dockBounds.left + (dockW - (3 * cBtnW + 2 * cGap)) / 2.f;
 
-        allTools.push_back({TOOL_SCHOOL, "ELEMENTARY SCHOOL", "Edu [1] (R:5)", sf::Color(231, 76, 60), ToolbarCategory::CIVICS,
+        allTools.push_back({TOOL_SCHOOL, "ELEMENTARY SCHOOL", "[2x2] Edu [1] ($200)", sf::Color(231, 76, 60), ToolbarCategory::CIVICS,
             sf::FloatRect(cStartX + 0 * (cBtnW + cGap), btnY, cBtnW, btnH)});
-        allTools.push_back({TOOL_CHURCH, "COMMUNITY CHURCH", "Faith [2] (R:4)", sf::Color(155, 89, 182), ToolbarCategory::CIVICS,
+        allTools.push_back({TOOL_CHURCH, "COMMUNITY CHURCH", "[2x2] Faith [2] ($180)", sf::Color(155, 89, 182), ToolbarCategory::CIVICS,
             sf::FloatRect(cStartX + 1 * (cBtnW + cGap), btnY, cBtnW, btnH)});
-        allTools.push_back({TOOL_PARK, "NATURE PARK", "Health [3] (R:4)", sf::Color(39, 174, 96), ToolbarCategory::CIVICS,
+        allTools.push_back({TOOL_PARK, "NATURE PARK", "[2x2] Health [3] ($80)", sf::Color(39, 174, 96), ToolbarCategory::CIVICS,
             sf::FloatRect(cStartX + 2 * (cBtnW + cGap), btnY, cBtnW, btnH)});
 
         // Infrastructure Category (4 tools)
@@ -115,13 +115,13 @@ public:
         float iGap = 10.f;
         float iStartX = dockBounds.left + (dockW - (4 * iBtnW + 3 * iGap)) / 2.f;
 
-        allTools.push_back({TOOL_ROAD, "DIRT ROAD", "Build [Space]", sf::Color(189, 195, 199), ToolbarCategory::INFRASTRUCTURE,
+        allTools.push_back({TOOL_ROAD, "DIRT ROAD", "[1x1] Path [Space] ($10)", sf::Color(189, 195, 199), ToolbarCategory::INFRASTRUCTURE,
             sf::FloatRect(iStartX + 0 * (iBtnW + iGap), btnY, iBtnW, btnH)});
-        allTools.push_back({TOOL_HARBOUR, "TRADE HARBOUR", "Port [H] (+$120)", sf::Color(52, 152, 219), ToolbarCategory::INFRASTRUCTURE,
+        allTools.push_back({TOOL_HARBOUR, "TRADE HARBOUR", "[2x2] Port [H] ($250)", sf::Color(52, 152, 219), ToolbarCategory::INFRASTRUCTURE,
             sf::FloatRect(iStartX + 1 * (iBtnW + iGap), btnY, iBtnW, btnH)});
-        allTools.push_back({TOOL_WATER, "WATER BODY", "Terrain [W]", sf::Color(41, 128, 185), ToolbarCategory::INFRASTRUCTURE,
+        allTools.push_back({TOOL_WATER, "WATER BODY", "[1x1] Water [W] ($20)", sf::Color(41, 128, 185), ToolbarCategory::INFRASTRUCTURE,
             sf::FloatRect(iStartX + 2 * (iBtnW + iGap), btnY, iBtnW, btnH)});
-        allTools.push_back({TOOL_BULLDOZE, "DEMOLISH", "Clear [X]", sf::Color(231, 76, 60), ToolbarCategory::INFRASTRUCTURE,
+        allTools.push_back({TOOL_BULLDOZE, "DEMOLISH", "Clear [X] ($5)", sf::Color(231, 76, 60), ToolbarCategory::INFRASTRUCTURE,
             sf::FloatRect(iStartX + 3 * (iBtnW + iGap), btnY, iBtnW, btnH)});
     }
 

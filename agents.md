@@ -78,14 +78,13 @@ GameEngine
 - **HappinessSystem (`game/simulation/HappinessSystem.hpp`)** — High-performance 9-domain satisfaction engine. Computes spatial service coverage (Education, Safety, Health, Recreation, Pollution), weights economic satisfaction (taxes, jobs), and drives autonomous tier upgrades (T1 $\to$ T2 $\to$ T3).
 - **Entity (`src/Entity.hpp`)** — Base game object. Owns transform `position`, ID, naming, `isActive` status, and optional rendering primitives (`sprite`, `shape`, `text`). Safely handles rendering dispatch in `draw()` with null guards, and deallocates heap-allocated SFML objects in `~Entity()`.
 - **Zone (`game/entities/_Zone.hpp`)** — Extends `Entity`. Base class for developable and natural ground tiles. Tracks `capacity`, `population`, `zoneIncome`, `buildCost`, and tax payment state. Subclasses override `update()`, `checkValid()`, and `payTax()`.
-- **ResidentalZone (`game/entities/ResidentalZone.hpp`)** — Housing zone with 3 tiers (Cottages, Brick Apartments, Highrise Estates). Integrates with `HappinessSystem` and auto-upgrades based on happiness, education, and park access.
-- **CommericalZone (`game/entities/CommericalZone.hpp`)** — Retail and commercial office zone with 3 tiers (Corner Shops, Shopping Plazas, Corporate Towers).
-- **IndustrialZone (`game/entities/IndustrialZone.hpp`)** — Manufacturing zone with 3 tiers. Emits localized pollution radius affecting residential happiness.
-- **FarmZone (`game/entities/FarmZone.hpp`)** — Low-density agricultural zone. Generates jobs with zero pollution.
-- **HarbourZone (`game/entities/HarbourZone.hpp`)** — Maritime trade and port facility placed adjacent to water.
-- **Civics (`SchoolZone.hpp`, `ChurchZone.hpp`, `ParkZone.hpp`, `SubZone.hpp`)** — Educational, moral/safety, and health/recreation coverage providers with radial projection. `SchoolZone` and `ChurchZone` are 2×2 multi-tile complexes with custom 48×64 and 48×70 pixel-art sprites, master/sub-tile architecture, and synchronized demolition.
-- **GrassTile & WaterTile (`GlassTile.hpp`, `WaterTile.hpp`)** — Natural ground foundations.
-- **Road & DirtRoad (`game/entities/roads/`)** — Transportation network. `DirtRoad` checks 4-way and diagonal neighbours every frame in `check()` to orient and select textures (`road` vs `road-mid`).
+- **ResidentalZone (`game/entities/ResidentalZone.hpp`)** — 2x2 housing zone complex with identical `zone_residental` ground base and 3 happiness-dependent tiers (Tier 1 Cottages/Bungalow, Tier 2 Brick Apartments/Condominiums, Tier 3 Highrise Luxury Towers/Twin Plazas). Auto-upgrades and downgrades based on citizen satisfaction.
+- **CommericalZone (`game/entities/CommericalZone.hpp`)** — 2x2 commercial zone complex with identical `zone_commercial` ground base and 3 happiness-dependent tiers (Tier 1 Corner Grocery/Diner, Tier 2 Shopping Plaza/Department Store, Tier 3 Corporate Banking Highrise/Financial Center).
+- **IndustrialZone (`game/entities/IndustrialZone.hpp`)** — 2x2 manufacturing complex with identical `zone_industrial` ground base and 3 tiers (Tier 1 Scrap Workshop/Warehouse, Tier 2 Manufacturing Plant/Assembly, Tier 3 High-Tech Clean-Fab/Robotics Hub).
+- **FarmZone (`game/entities/FarmZone.hpp`)** — 2x2 agricultural zone complex with `zone_farm` base and variants (Red Barn & Silo, Windmill Homestead).
+- **HarbourZone (`game/entities/HarbourZone.hpp`)** — 2x2 maritime trade port placed adjacent to water with cargo cranes, docks, and shipping containers.
+- **Civics (`SchoolZone.hpp`, `ChurchZone.hpp`, `ParkZone.hpp`, `SubZone.hpp`)** — 2x2 civic services with radial coverage: Elementary School (R:5), Gothic Cathedral (R:4), and Grand Nature Park with central fountain and shaded grove (R:4).
+- **Road & DirtRoad (`game/entities/roads/`)** — 1x1 transportation network autotiling across 4-way and diagonal intersections.
 - **Player (`game/entities/Player.hpp`)** — Selector cursor entity. Snaps its position in world space to the currently hovered isometric tile.
 - **Window (`game/ui/Window.hpp`)** — HUD component. Automatically sizes its background rectangle to tightly enclose its label text (`resize()`) without allocating leaked heap objects.
 - **AssetManager (`src/AssetManager.hpp`)** — Global asset registry holding `m_textures`, `m_fonts`, and `m_sounds`. Searches both local `assets/` and parent `../assets/`.

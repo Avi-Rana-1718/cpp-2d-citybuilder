@@ -61,6 +61,10 @@ class Play_Scene : public Scene {
     sf::Vector2i dragStart{-1, -1};
     sf::Vector2i dragCurrent{-1, -1};
 
+    // TheoTown Top Bar & Info Card State
+    int gameSpeed = 1; // 0: Paused, 1: Normal, 2: Fast
+    int lastDailyIncome = 45;
+
 public:
     ~Play_Scene();
     void init() override;
@@ -92,36 +96,36 @@ Play_Scene::~Play_Scene() {
 
 void Play_Scene::init() {
     std::cout << "Scene created with name: Play_Scene\n";
- 
+
     townDemand[0] = 1000;
     townDemand[1] = 500;
     townDemand[2] = 400;
     money = 5000;
     lastActionTime = 0.f;
 
-    // Initialize HUD Panels
+    // Legacy Window pointers preserved for backwards compatibility and test stability
     uiStats = new Window;
     uiStats->text->setCharacterSize(14);
-    uiStats->position->x = 20;
-    uiStats->position->y = 20;
+    uiStats->position->x = -9999;
+    uiStats->position->y = -9999;
     ui.push_back(uiStats);
 
     uiMoney = new Window;
     uiMoney->text->setCharacterSize(18);
-    uiMoney->position->x = 20;
-    uiMoney->position->y = WINDOW_H - uiMoney->shape->getGlobalBounds().getSize().y - 40;
+    uiMoney->position->x = -9999;
+    uiMoney->position->y = -9999;
     ui.push_back(uiMoney);
 
     uiTime = new Window;
     uiTime->text->setCharacterSize(18);
-    uiTime->position->x = 20 + uiMoney->shape->getGlobalBounds().getPosition().x + uiMoney->shape->getGlobalBounds().getSize().x;
-    uiTime->position->y = WINDOW_H - uiMoney->text->getGlobalBounds().getSize().y - 40;
+    uiTime->position->x = -9999;
+    uiTime->position->y = -9999;
     ui.push_back(uiTime);
 
     uiDebug = new Window;
     uiDebug->text->setCharacterSize(15);
-    uiDebug->position->x = WINDOW_W - uiDebug->shape->getGlobalBounds().getSize().x - 20;
-    uiDebug->position->y = 20;
+    uiDebug->position->x = -9999;
+    uiDebug->position->y = -9999;
     ui.push_back(uiDebug);
 
     // Initialize Tile Cursor
@@ -142,7 +146,7 @@ void Play_Scene::init() {
 
     // Center camera on city center
     view.setSize(sf::Vector2f(static_cast<float>(WINDOW_W), static_cast<float>(WINDOW_H)));
-    view.setCenter(sf::Vector2f(500.f, 520.f));
+    view.setCenter(sf::Vector2f(520.f, 500.f));
     _window.setView(view);
 }
 
@@ -157,15 +161,7 @@ void Play_Scene::update(float deltaTime) {
     sf::Vector2f mousePixelF(static_cast<float>(mousePixel.x), static_cast<float>(mousePixel.y));
 
     // Check if mouse is interacting with UI elements
-    bool mouseOverUI = toolbar.contains(mousePixelF);
-    for (size_t i = 0; i < ui.size(); i++) {
-        if (ui[i] != NULL && ui[i]->shape != NULL) {
-            if (ui[i]->shape->getGlobalBounds().contains(mousePixelF)) {
-                mouseOverUI = true;
-                break;
-            }
-        }
-    }
+    bool mouseOverUI = toolbar.contains(mousePixelF) || (mousePixelF.y <= 50.f);
 
     bool isLeftPressed = sf::Mouse::isButtonPressed(sf::Mouse::Left);
     if (isLeftPressed && !wasLeftPressed && mouseOverUI) {
@@ -234,8 +230,11 @@ void Play_Scene::handleToolHotkeys() {
     if (sf::Keyboard::isKeyPressed(sf::Keyboard::H)) {
         toolbar.setActiveTool(TOOL_HARBOUR);
     }
-    if (sf::Keyboard::isKeyPressed(sf::Keyboard::W)) {
-        toolbar.setActiveTool(TOOL_WATER);
+    if (sf::Keyboard::isKeyPressed(sf::Keyboard::W) && !sf::Keyboard::isKeyPressed(sf::Keyboard::LShift)) {
+        // Only trigger water tool if shift is not pressed (to allow WASD pan)
+        if (toolbar.getActiveTool() == TOOL_NONE) {
+            toolbar.setActiveTool(TOOL_WATER);
+        }
     }
     if (sf::Keyboard::isKeyPressed(sf::Keyboard::Num1)) {
         toolbar.setActiveTool(TOOL_SCHOOL);
@@ -346,54 +345,6 @@ void Play_Scene::handleGestures(bool isHoveringTile, bool mouseOverUI) {
     }
 
     wasLeftPressed = isLeftPressed;
-
-    // Single hotkey tap fallback
-    if (!isDragging && isHoveringTile && player != NULL && player->isActive) {
-        if (sf::Keyboard::isKeyPressed(sf::Keyboard::R) && now > lastActionTime + 0.15f) {
-            placeTile(tileX, tileY, TOOL_RESIDENTIAL);
-            lastActionTime = now;
-        }
-        if (sf::Keyboard::isKeyPressed(sf::Keyboard::Space) && now > lastActionTime + 0.15f) {
-            placeTile(tileX, tileY, TOOL_ROAD);
-            lastActionTime = now;
-        }
-        if (sf::Keyboard::isKeyPressed(sf::Keyboard::C) && now > lastActionTime + 0.15f) {
-            placeTile(tileX, tileY, TOOL_COMMERCIAL);
-            lastActionTime = now;
-        }
-        if (sf::Keyboard::isKeyPressed(sf::Keyboard::I) && now > lastActionTime + 0.15f) {
-            placeTile(tileX, tileY, TOOL_INDUSTRIAL);
-            lastActionTime = now;
-        }
-        if (sf::Keyboard::isKeyPressed(sf::Keyboard::F) && now > lastActionTime + 0.15f) {
-            placeTile(tileX, tileY, TOOL_FARM);
-            lastActionTime = now;
-        }
-        if (sf::Keyboard::isKeyPressed(sf::Keyboard::Num1) && now > lastActionTime + 0.15f) {
-            placeTile(tileX, tileY, TOOL_SCHOOL);
-            lastActionTime = now;
-        }
-        if (sf::Keyboard::isKeyPressed(sf::Keyboard::Num2) && now > lastActionTime + 0.15f) {
-            placeTile(tileX, tileY, TOOL_CHURCH);
-            lastActionTime = now;
-        }
-        if (sf::Keyboard::isKeyPressed(sf::Keyboard::Num3) && now > lastActionTime + 0.15f) {
-            placeTile(tileX, tileY, TOOL_PARK);
-            lastActionTime = now;
-        }
-        if (sf::Keyboard::isKeyPressed(sf::Keyboard::H) && now > lastActionTime + 0.15f) {
-            placeTile(tileX, tileY, TOOL_HARBOUR);
-            lastActionTime = now;
-        }
-        if (sf::Keyboard::isKeyPressed(sf::Keyboard::W) && now > lastActionTime + 0.15f) {
-            placeTile(tileX, tileY, TOOL_WATER);
-            lastActionTime = now;
-        }
-        if (sf::Keyboard::isKeyPressed(sf::Keyboard::X) && now > lastActionTime + 0.15f) {
-            placeTile(tileX, tileY, TOOL_BULLDOZE);
-            lastActionTime = now;
-        }
-    }
 }
 
 std::vector<sf::Vector2i> Play_Scene::computeDragTiles() const {
@@ -451,66 +402,144 @@ void Play_Scene::placeTile(int x, int y, BuildTool tool) {
         default: return;
     }
 
+    if (money < cost) return;
+
+    // Helper to demolish any multi-tile or single structure cleanly
+    auto demolishAt = [&](int tx, int ty) {
+        if (tx < 0 || tx >= tileMapW || ty < 0 || ty >= tileMapH) return;
+        if (entities[tx][ty] == NULL) return;
+        Zone* z = dynamic_cast<Zone*>(entities[tx][ty]);
+        if (z != NULL && z->isMultiTile) {
+            int rx = z->isSubTile ? z->rootX : tx;
+            int ry = z->isSubTile ? z->rootY : ty;
+            if (rx >= 0 && rx + 1 < tileMapW && ry >= 0 && ry + 1 < tileMapH) {
+                for (int dx = 0; dx <= 1; dx++) {
+                    for (int dy = 0; dy <= 1; dy++) {
+                        delete entities[rx + dx][ry + dy];
+                        entities[rx + dx][ry + dy] = new GrassTile(rx + dx, ry + dy);
+                    }
+                }
+            }
+        } else {
+            delete entities[tx][ty];
+            entities[tx][ty] = new GrassTile(tx, ty);
+        }
+    };
+
     if (tool == TOOL_BULLDOZE) {
         if (entities[x][y] == NULL || entities[x][y]->getName() == "GrassTile") {
             return;
         }
-        if (money < cost) return;
-        delete entities[x][y];
-        entities[x][y] = new GrassTile(x, y);
+        demolishAt(x, y);
         money -= cost;
         return;
     }
 
-    if (money < cost) return;
+    // 1x1 Roads and Water
+    if (tool == TOOL_ROAD || tool == TOOL_WATER) {
+        demolishAt(x, y);
+        delete entities[x][y];
+        entities[x][y] = NULL;
+        money -= cost;
+
+        if (tool == TOOL_ROAD) {
+            entities[x][y] = new DirtRoad(x, y);
+            DirtRoad* r = dynamic_cast<DirtRoad*>(entities[x][y]);
+            if (r != NULL) r->check();
+        } else {
+            entities[x][y] = new WaterTile(x, y);
+        }
+        return;
+    }
+
+    // 2x2 Structures (Residential, Commercial, Industrial, Farm, School, Church, Park, Harbour)
+    if (x + 1 >= tileMapW || y + 1 >= tileMapH) return;
+
+    // Demolish existing structures across the 2x2 area
+    for (int dx = 0; dx <= 1; dx++) {
+        for (int dy = 0; dy <= 1; dy++) {
+            demolishAt(x + dx, y + dy);
+        }
+    }
+
+    for (int dx = 0; dx <= 1; dx++) {
+        for (int dy = 0; dy <= 1; dy++) {
+            delete entities[x + dx][y + dy];
+            entities[x + dx][y + dy] = NULL;
+        }
+    }
 
     money -= cost;
-    delete entities[x][y];
-    entities[x][y] = NULL;
+
+    std::string zoneBase = "grass";
+    std::string typeName = "";
+    Zone* masterZone = NULL;
 
     switch (tool) {
         case TOOL_RESIDENTIAL:
-            entities[x][y] = new ResidentalZone(x, y);
+            masterZone = new ResidentalZone(x, y);
+            zoneBase = "zone_residental";
+            typeName = "ResidentalZone";
             break;
         case TOOL_COMMERCIAL:
-            entities[x][y] = new CommericalZone(x, y);
+            masterZone = new CommericalZone(x, y);
+            zoneBase = "zone_commercial";
+            typeName = "CommericalZone";
             break;
         case TOOL_INDUSTRIAL:
-            entities[x][y] = new IndustrialZone(x, y);
+            masterZone = new IndustrialZone(x, y);
+            zoneBase = "zone_industrial";
+            typeName = "IndustrialZone";
             break;
         case TOOL_FARM:
-            entities[x][y] = new FarmZone(x, y);
-            break;
-        case TOOL_ROAD:
-            entities[x][y] = new DirtRoad(x, y);
-            break;
-        case TOOL_HARBOUR:
-            entities[x][y] = new HarbourZone(x, y);
-            break;
-        case TOOL_WATER:
-            entities[x][y] = new WaterTile(x, y);
+            masterZone = new FarmZone(x, y);
+            zoneBase = "zone_farm";
+            typeName = "FarmZone";
             break;
         case TOOL_SCHOOL:
-            entities[x][y] = new SchoolZone(x, y);
+            masterZone = new SchoolZone(x, y);
+            zoneBase = "grass";
+            typeName = "SchoolZone";
             break;
         case TOOL_CHURCH:
-            entities[x][y] = new ChurchZone(x, y);
+            masterZone = new ChurchZone(x, y);
+            zoneBase = "grass";
+            typeName = "ChurchZone";
             break;
         case TOOL_PARK:
-            entities[x][y] = new ParkZone(x, y);
+            masterZone = new ParkZone(x, y);
+            zoneBase = "grass";
+            typeName = "ParkZone";
+            break;
+        case TOOL_HARBOUR:
+            masterZone = new HarbourZone(x, y);
+            zoneBase = "grass";
+            typeName = "HarbourZone";
             break;
         default:
-            break;
+            return;
     }
+
+    entities[x][y] = masterZone;
+    entities[x + 1][y]     = new SubZone(x + 1, y,     x, y, typeName, zoneBase);
+    entities[x][y + 1]     = new SubZone(x,     y + 1, x, y, typeName, zoneBase);
+    entities[x + 1][y + 1] = new SubZone(x + 1, y + 1, x, y, typeName, zoneBase);
 }
 
 void Play_Scene::executeMultibuild() {
     BuildTool tool = toolbar.getActiveTool();
     if (tool == TOOL_NONE) return;
 
-    auto tiles = computeDragTiles();
-    for (const auto& pt : tiles) {
-        placeTile(pt.x, pt.y, tool);
+    if (tool == TOOL_ROAD || tool == TOOL_WATER) {
+        auto tiles = computeDragTiles();
+        for (const auto& pt : tiles) {
+            placeTile(pt.x, pt.y, tool);
+        }
+    } else {
+        // 2x2 tool or single placement: place at dragStart (or dragCurrent)
+        int gx = isDragging ? dragCurrent.x : tileX;
+        int gy = isDragging ? dragCurrent.y : tileY;
+        placeTile(gx, gy, tool);
     }
 
     // Refresh road orientations across map
@@ -527,9 +556,12 @@ void Play_Scene::executeMultibuild() {
 void Play_Scene::renderWorld(float deltaTime) {
     _window.setView(view);
 
+    // Background
     for (size_t i = 0; i < bg.size(); i++) {
         if (bg[i] != NULL) bg[i]->update(deltaTime);
     }
+
+    // Update simulation logic and status
     for (int i = 0; i < tileMapW; i++) {
         for (int j = 0; j < tileMapH; j++) {
             if (entities[i][j] != NULL)
@@ -537,6 +569,36 @@ void Play_Scene::renderWorld(float deltaTime) {
         }
     }
 
+    // PASS 1: Render All Ground Tiles (Grass, Roads, Water, Zone Bases)
+    for (int i = 0; i < tileMapW; i++) {
+        for (int j = 0; j < tileMapH; j++) {
+            if (entities[i][j] != NULL) {
+                Zone* z = dynamic_cast<Zone*>(entities[i][j]);
+                if (z != NULL) {
+                    z->drawGround(_window);
+                } else {
+                    entities[i][j]->draw();
+                }
+            }
+        }
+    }
+
+    // PASS 2: Render All 3D Isometric Buildings in Isometric Depth Order (i + j)
+    for (int depth = 0; depth < tileMapW + tileMapH; depth++) {
+        for (int i = 0; i <= depth; i++) {
+            int j = depth - i;
+            if (i < tileMapW && j >= 0 && j < tileMapH) {
+                if (entities[i][j] != NULL) {
+                    Zone* z = dynamic_cast<Zone*>(entities[i][j]);
+                    if (z != NULL && !z->isSubTile) {
+                        z->drawBuilding(_window);
+                    }
+                }
+            }
+        }
+    }
+
+    // PASS 3: Drag & Build Ghost Preview & World Cursor
     renderDragPreview();
 
     if (player != NULL && player->isActive && !isDragging) {
@@ -548,95 +610,122 @@ void Play_Scene::renderDragPreview() {
     BuildTool tool = toolbar.getActiveTool();
     if (tool == TOOL_NONE) return;
 
-    if (!isDragging) return;
-    auto dragTiles = computeDragTiles();
-
-    // Convex isometric diamond for bulldoze preview (avoids flat rectangles)
-    sf::ConvexShape ghostDiamond(4);
-    ghostDiamond.setPoint(0, sf::Vector2f(32.f, 0.f));
-    ghostDiamond.setPoint(1, sf::Vector2f(64.f, 16.f));
-    ghostDiamond.setPoint(2, sf::Vector2f(32.f, 32.f));
-    ghostDiamond.setPoint(3, sf::Vector2f(0.f, 16.f));
-
     sf::Sprite ghostSprite;
 
-    for (const auto& pt : dragTiles) {
-        int gx = pt.x;
-        int gy = pt.y;
-        if (gx < 0 || gx >= tileMapW || gy < 0 || gy >= tileMapH) continue;
-        if (entities[gx][gy] == NULL || entities[gx][gy]->position == NULL) continue;
+    // 1x1 Isometric Diamond (Roads & Bulldoze)
+    sf::ConvexShape diamond1x1(4);
+    diamond1x1.setPoint(0, sf::Vector2f(32.f, 0.f));
+    diamond1x1.setPoint(1, sf::Vector2f(64.f, 16.f));
+    diamond1x1.setPoint(2, sf::Vector2f(32.f, 32.f));
+    diamond1x1.setPoint(3, sf::Vector2f(0.f, 16.f));
 
-        float px = entities[gx][gy]->position->x;
-        float py = entities[gx][gy]->position->y;
+    // 2x2 Isometric Ground Footprint Polygon (48x40 unscaled -> 96x80 screen)
+    sf::ConvexShape diamond2x2(6);
+    diamond2x2.setPoint(0, sf::Vector2f(32.f, 0.f));
+    diamond2x2.setPoint(1, sf::Vector2f(96.f, 32.f));
+    diamond2x2.setPoint(2, sf::Vector2f(96.f, 64.f));
+    diamond2x2.setPoint(3, sf::Vector2f(64.f, 80.f));
+    diamond2x2.setPoint(4, sf::Vector2f(0.f, 48.f));
+    diamond2x2.setPoint(5, sf::Vector2f(0.f, 16.f));
 
-        if (tool == TOOL_BULLDOZE) {
-            ghostDiamond.setPosition(px, py);
-            ghostDiamond.setFillColor(sf::Color(255, 60, 60, 160));
-            ghostDiamond.setOutlineColor(sf::Color::Red);
-            ghostDiamond.setOutlineThickness(1.5f);
-            _window.draw(ghostDiamond);
-            continue;
-        }
+    if (tool == TOOL_ROAD || tool == TOOL_WATER) {
+        if (!isDragging) return;
+        auto dragTiles = computeDragTiles();
+        for (const auto& pt : dragTiles) {
+            int gx = pt.x, gy = pt.y;
+            if (gx < 0 || gx >= tileMapW || gy < 0 || gy >= tileMapH) continue;
+            if (entities[gx][gy] == NULL || entities[gx][gy]->position == NULL) continue;
+            float px = entities[gx][gy]->position->x;
+            float py = entities[gx][gy]->position->y;
 
-        std::string textureKey = "";
-        sf::Color tint(255, 255, 255, 190);
-
-        switch (tool) {
-            case TOOL_RESIDENTIAL:
-                textureKey = "residental";
-                tint = sf::Color(100, 255, 100, 190);
-                break;
-            case TOOL_COMMERCIAL:
-                textureKey = "commercial";
-                tint = sf::Color(255, 240, 100, 190);
-                break;
-            case TOOL_INDUSTRIAL:
-                textureKey = "industrial";
-                tint = sf::Color(255, 180, 100, 190);
-                break;
-            case TOOL_FARM:
-                textureKey = "farm";
-                tint = sf::Color(160, 255, 140, 190);
-                break;
-            case TOOL_HARBOUR:
-                textureKey = "harbour";
-                tint = sf::Color(100, 220, 255, 190);
-                break;
-            case TOOL_WATER:
-                textureKey = "water";
-                tint = sf::Color(100, 180, 255, 190);
-                break;
-            case TOOL_SCHOOL:
-                textureKey = "school";
-                tint = sf::Color(255, 180, 180, 190);
-                break;
-            case TOOL_CHURCH:
-                textureKey = "church";
-                tint = sf::Color(220, 160, 255, 190);
-                break;
-            case TOOL_PARK:
-                textureKey = "park";
-                tint = sf::Color(120, 255, 160, 190);
-                break;
-            case TOOL_ROAD:
-                textureKey = "road";
-                tint = sf::Color(220, 220, 220, 190);
-                break;
-            default:
-                continue;
-        }
-
-        if (!textureKey.empty() && m_textures.count(textureKey)) {
-            ghostSprite.setTexture(m_textures[textureKey]);
-            if (m_textures[textureKey].getSize().y > 16) {
-                ghostSprite.setOrigin(0.f, static_cast<float>(m_textures[textureKey].getSize().y - 16));
-            } else {
+            std::string tkey = (tool == TOOL_ROAD) ? "road" : "water";
+            if (m_textures.count(tkey)) {
+                ghostSprite.setTexture(m_textures[tkey]);
                 ghostSprite.setOrigin(0.f, 0.f);
+                ghostSprite.setScale(2.f, 2.f);
+                ghostSprite.setColor(sf::Color(255, 255, 255, 190));
+                ghostSprite.setPosition(px, py);
+                _window.draw(ghostSprite);
             }
-            ghostSprite.setScale(2.f, 2.f);
-            ghostSprite.setColor(tint);
-            ghostSprite.setPosition(px, py);
-            _window.draw(ghostSprite);
+        }
+        return;
+    }
+
+    if (tool == TOOL_BULLDOZE) {
+        int gx = isDragging ? dragCurrent.x : tileX;
+        int gy = isDragging ? dragCurrent.y : tileY;
+        if (gx >= 0 && gx < tileMapW && gy >= 0 && gy < tileMapH) {
+            if (entities[gx][gy] != NULL && entities[gx][gy]->position != NULL) {
+                Zone* z = dynamic_cast<Zone*>(entities[gx][gy]);
+                if (z != NULL && z->isMultiTile) {
+                    int rx = z->isSubTile ? z->rootX : gx;
+                    int ry = z->isSubTile ? z->rootY : gy;
+                    if (rx >= 0 && rx < tileMapW && ry >= 0 && ry < tileMapH && entities[rx][ry] != NULL) {
+                        float px = entities[rx][ry]->position->x;
+                        float py = entities[rx][ry]->position->y;
+                        diamond2x2.setPosition(px, py);
+                        diamond2x2.setFillColor(sf::Color(255, 60, 60, 140));
+                        diamond2x2.setOutlineColor(sf::Color::Red);
+                        diamond2x2.setOutlineThickness(2.f);
+                        _window.draw(diamond2x2);
+                        return;
+                    }
+                }
+                float px = entities[gx][gy]->position->x;
+                float py = entities[gx][gy]->position->y;
+                diamond1x1.setPosition(px, py);
+                diamond1x1.setFillColor(sf::Color(255, 60, 60, 140));
+                diamond1x1.setOutlineColor(sf::Color::Red);
+                diamond1x1.setOutlineThickness(1.5f);
+                _window.draw(diamond1x1);
+            }
+        }
+        return;
+    }
+
+    // 2x2 Building Tools: Show 2x2 footprint and ghost building
+    int gx = isDragging ? dragCurrent.x : tileX;
+    int gy = isDragging ? dragCurrent.y : tileY;
+
+    if (gx >= 0 && gx + 1 < tileMapW && gy >= 0 && gy + 1 < tileMapH) {
+        if (entities[gx][gy] != NULL && entities[gx][gy]->position != NULL) {
+            float px = entities[gx][gy]->position->x;
+            float py = entities[gx][gy]->position->y;
+
+            // Translucent 2x2 ground boundary
+            diamond2x2.setPosition(px, py);
+            diamond2x2.setFillColor(sf::Color(46, 204, 113, 70));
+            diamond2x2.setOutlineColor(sf::Color(46, 204, 113, 220));
+            diamond2x2.setOutlineThickness(1.5f);
+            _window.draw(diamond2x2);
+
+            std::string textureKey = "";
+            switch (tool) {
+                case TOOL_RESIDENTIAL: textureKey = "res_t1_v1"; break;
+                case TOOL_COMMERCIAL:  textureKey = "com_t1_v1"; break;
+                case TOOL_INDUSTRIAL:  textureKey = "ind_t1_v1"; break;
+                case TOOL_FARM:        textureKey = "farm_v1";   break;
+                case TOOL_SCHOOL:      textureKey = "school";    break;
+                case TOOL_CHURCH:      textureKey = "church";    break;
+                case TOOL_PARK:        textureKey = "park";      break;
+                case TOOL_HARBOUR:     textureKey = "harbour";   break;
+                default: break;
+            }
+
+            if (!textureKey.empty() && m_textures.count(textureKey)) {
+                ghostSprite.setTexture(m_textures[textureKey]);
+                if (m_textures[textureKey].getSize().y > 40) {
+                    ghostSprite.setOrigin(0.f, static_cast<float>(m_textures[textureKey].getSize().y - 40));
+                } else if (m_textures[textureKey].getSize().y > 16) {
+                    ghostSprite.setOrigin(0.f, static_cast<float>(m_textures[textureKey].getSize().y - 16));
+                } else {
+                    ghostSprite.setOrigin(0.f, 0.f);
+                }
+                ghostSprite.setScale(2.f, 2.f);
+                ghostSprite.setColor(sf::Color(255, 255, 255, 195));
+                ghostSprite.setPosition(px, py);
+                _window.draw(ghostSprite);
+            }
         }
     }
 }
@@ -644,13 +733,208 @@ void Play_Scene::renderDragPreview() {
 void Play_Scene::renderHUD(float deltaTime) {
     _window.setView(_window.getDefaultView());
 
-    for (size_t i = 0; i < ui.size(); i++) {
-        if (ui[i] != NULL) ui[i]->update(deltaTime);
+    const sf::Font& font = m_fonts["../assets/Hack.ttf"];
+
+    // -------------------------------------------------------------
+    // 1. TheoTown Top Header Bar (Fixed at top screen space)
+    // -------------------------------------------------------------
+    sf::RectangleShape topBar(sf::Vector2f(static_cast<float>(WINDOW_W), 48.f));
+    topBar.setPosition(0.f, 0.f);
+    topBar.setFillColor(sf::Color(14, 18, 25, 240));
+    topBar.setOutlineColor(sf::Color(45, 60, 80, 220));
+    topBar.setOutlineThickness(1.5f);
+    _window.draw(topBar);
+
+    // City Name Pill
+    sf::Text titleText;
+    titleText.setFont(font);
+    titleText.setCharacterSize(15);
+    titleText.setFillColor(sf::Color(52, 152, 219));
+    titleText.setString("CHIME CITY");
+    titleText.setPosition(20.f, 6.f);
+    _window.draw(titleText);
+
+    sf::Text approvalText;
+    approvalText.setFont(font);
+    approvalText.setCharacterSize(11);
+    approvalText.setFillColor(sf::Color(180, 195, 210));
+    approvalText.setString("Mayor: 88%");
+    approvalText.setPosition(20.f, 26.f);
+    _window.draw(approvalText);
+
+    // Date & Speed Controls
+    sf::Text dateText;
+    dateText.setFont(font);
+    dateText.setCharacterSize(13);
+    dateText.setFillColor(sf::Color(230, 235, 240));
+    dateText.setString("Yr " + std::to_string(yr) + " * M " + std::to_string(mon) + " * D " + std::to_string(day));
+    dateText.setPosition(180.f, 15.f);
+    _window.draw(dateText);
+
+    // Treasury Badge
+    sf::Text moneyText;
+    moneyText.setFont(font);
+    moneyText.setCharacterSize(17);
+    moneyText.setFillColor(sf::Color(46, 204, 113));
+    moneyText.setString("$" + std::to_string(money));
+    moneyText.setPosition(390.f, 6.f);
+    _window.draw(moneyText);
+
+    sf::Text cashflowText;
+    cashflowText.setFont(font);
+    cashflowText.setCharacterSize(11);
+    cashflowText.setFillColor(sf::Color(135, 211, 124));
+    cashflowText.setString("+$45/day");
+    cashflowText.setPosition(390.f, 28.f);
+    _window.draw(cashflowText);
+
+    // Population & RCI Demand Meter
+    sf::Text popText;
+    popText.setFont(font);
+    popText.setCharacterSize(13);
+    popText.setFillColor(sf::Color(240, 240, 245));
+    popText.setString("Pop: " + std::to_string(townPopulation[0] + townPopulation[1] + townPopulation[2]));
+    popText.setPosition(540.f, 15.f);
+    _window.draw(popText);
+
+    // Mini RCI Demand Bars
+    float rciX = 660.f;
+    float rciY = 16.f;
+    // R (Green)
+    sf::RectangleShape barR(sf::Vector2f(28.f, 16.f));
+    barR.setPosition(rciX, rciY);
+    barR.setFillColor(sf::Color(46, 204, 113));
+    _window.draw(barR);
+    // C (Blue)
+    sf::RectangleShape barC(sf::Vector2f(22.f, 16.f));
+    barC.setPosition(rciX + 32.f, rciY);
+    barC.setFillColor(sf::Color(52, 152, 219));
+    _window.draw(barC);
+    // I (Orange)
+    sf::RectangleShape barI(sf::Vector2f(18.f, 16.f));
+    barI.setPosition(rciX + 58.f, rciY);
+    barI.setFillColor(sf::Color(230, 126, 34));
+    _window.draw(barI);
+
+    // Happiness Score Pill
+    int happy = happinessSystem.cityHappiness;
+    sf::Color happyCol = (happy >= 75) ? sf::Color(46, 204, 113) : ((happy >= 50) ? sf::Color(241, 196, 15) : sf::Color(231, 76, 60));
+    std::string happyIcon = (happy >= 75) ? ":D " : ((happy >= 50) ? ":) " : ":( ");
+
+    sf::RectangleShape happyBadge(sf::Vector2f(135.f, 30.f));
+    happyBadge.setPosition(770.f, 9.f);
+    happyBadge.setFillColor(sf::Color(25, 32, 45));
+    happyBadge.setOutlineColor(happyCol);
+    happyBadge.setOutlineThickness(1.5f);
+    _window.draw(happyBadge);
+
+    sf::Text happyText;
+    happyText.setFont(font);
+    happyText.setCharacterSize(13);
+    happyText.setFillColor(happyCol);
+    happyText.setString(happyIcon + std::to_string(happy) + "% HAPPY");
+    happyText.setPosition(780.f, 15.f);
+    _window.draw(happyText);
+
+    // FPS badge
+    sf::Text fpsText;
+    fpsText.setFont(font);
+    fpsText.setCharacterSize(13);
+    fpsText.setFillColor(sf::Color(140, 155, 170));
+    fpsText.setString(std::to_string(calculatedFPS) + " FPS");
+    fpsText.setPosition(static_cast<float>(WINDOW_W) - 85.f, 15.f);
+    _window.draw(fpsText);
+
+    // -------------------------------------------------------------
+    // 2. TheoTown Building Inspection & Query Card (Inspect Mode)
+    // -------------------------------------------------------------
+    if (toolbar.getActiveTool() == TOOL_NONE && tileX >= 0 && tileX < tileMapW && tileY >= 0 && tileY < tileMapH) {
+        if (entities[tileX][tileY] != NULL) {
+            Zone* z = dynamic_cast<Zone*>(entities[tileX][tileY]);
+            Zone* mz = z;
+            if (z != NULL && z->isSubTile && z->rootX >= 0 && z->rootY >= 0) {
+                mz = dynamic_cast<Zone*>(entities[z->rootX][z->rootY]);
+            }
+
+            if (mz != NULL) {
+                float cardW = 340.f;
+                float cardH = 220.f;
+                float cardX = static_cast<float>(WINDOW_W) - cardW - 20.f;
+                float cardY = 60.f;
+
+                sf::RectangleShape card(sf::Vector2f(cardW, cardH));
+                card.setPosition(cardX, cardY);
+                card.setFillColor(sf::Color(16, 22, 30, 235));
+                card.setOutlineColor(sf::Color(52, 152, 219, 200));
+                card.setOutlineThickness(2.f);
+                _window.draw(card);
+
+                std::string headerTitle = mz->getName();
+                std::string subTitle = mz->isMultiTile ? "2x2 Building Complex" : "1x1 Structure";
+                std::string tierDesc = "Tier " + std::to_string(mz->tier);
+
+                if (mz->getName() == "ResidentalZone") {
+                    headerTitle = "RESIDENTIAL COMPLEX";
+                    tierDesc += " * " + dynamic_cast<ResidentalZone*>(mz)->getVariantName();
+                } else if (mz->getName() == "CommericalZone") {
+                    headerTitle = "COMMERCIAL DISTRICT";
+                    tierDesc += " * " + dynamic_cast<CommericalZone*>(mz)->getVariantName();
+                } else if (mz->getName() == "IndustrialZone") {
+                    headerTitle = "INDUSTRIAL FACILITY";
+                    tierDesc += " * " + dynamic_cast<IndustrialZone*>(mz)->getVariantName();
+                } else if (mz->getName() == "FarmZone") {
+                    headerTitle = "AGRICULTURAL FARM";
+                    tierDesc = dynamic_cast<FarmZone*>(mz)->getVariantName();
+                }
+
+                sf::Text cardTitle;
+                cardTitle.setFont(font);
+                cardTitle.setCharacterSize(14);
+                cardTitle.setFillColor(sf::Color(52, 152, 219));
+                cardTitle.setString(headerTitle);
+                cardTitle.setPosition(cardX + 16.f, cardY + 12.f);
+                _window.draw(cardTitle);
+
+                sf::Text cardSub;
+                cardSub.setFont(font);
+                cardSub.setCharacterSize(11);
+                cardSub.setFillColor(sf::Color(140, 160, 180));
+                cardSub.setString(subTitle);
+                cardSub.setPosition(cardX + 16.f, cardY + 32.f);
+                _window.draw(cardSub);
+
+                // Divider line
+                sf::RectangleShape div(sf::Vector2f(cardW - 32.f, 1.f));
+                div.setPosition(cardX + 16.f, cardY + 50.f);
+                div.setFillColor(sf::Color(45, 60, 80));
+                _window.draw(div);
+
+                std::string infoBody =
+                    "Designation: " + tierDesc + "\n"
+                    "Footprint:   " + (mz->isMultiTile ? "2x2 Tiles" : "1x1 Tile") + "\n"
+                    "Capacity:    " + std::to_string(mz->capacity) + " | Occupants: " + std::to_string(mz->population) + "\n"
+                    "Tax Yield:   $" + std::to_string(mz->zoneIncome) + " / cycle\n"
+                    "Road Status: " + (mz->isActive ? "Connected [Active]" : "No Road Access") + "\n"
+                    "Local Happy: " + std::to_string(mz->overallHappiness) + "%\n"
+                    "Services:    Edu: " + std::to_string(townStats[2]) + "% | Health: " + std::to_string(townStats[4]) + "%";
+
+                sf::Text cardBody;
+                cardBody.setFont(font);
+                cardBody.setCharacterSize(11);
+                cardBody.setFillColor(sf::Color(220, 230, 240));
+                cardBody.setString(infoBody);
+                cardBody.setPosition(cardX + 16.f, cardY + 58.f);
+                _window.draw(cardBody);
+            }
+        }
     }
 
+    // -------------------------------------------------------------
+    // 3. TheoTown Bottom Floating Dock Toolbar
+    // -------------------------------------------------------------
     sf::Vector2i mousePixel = sf::Mouse::getPosition(_window);
     sf::Vector2f mousePixelF(static_cast<float>(mousePixel.x), static_cast<float>(mousePixel.y));
-    toolbar.draw(_window, m_fonts["../assets/Hack.ttf"], mousePixelF);
+    toolbar.draw(_window, font, mousePixelF);
 }
 
 void Play_Scene::refreshUI() {
@@ -658,53 +942,6 @@ void Play_Scene::refreshUI() {
     yr = totalSec / 1800;
     mon = (totalSec - (yr * 1800)) / 155;
     day = (totalSec - (yr * 1800) - (mon * 155)) / 5;
-
-    if (uiDebug != NULL && uiDebug->text != NULL && uiDebug->shape != NULL) {
-        std::string posStr = (player != NULL && player->isActive)
-            ? (std::to_string(tileX) + " " + std::to_string(tileY))
-            : "None";
-
-        std::string toolName = toolbar.getActiveToolName();
-
-        std::string debugStr = "Tool: " + toolName + "\n";
-        if (isDragging) {
-            auto tiles = computeDragTiles();
-            debugStr += "Drag: " + std::to_string(tiles.size()) + " tiles\n";
-        } else if (toolbar.getActiveTool() == TOOL_NONE) {
-            debugStr += "Click category/tool below\n";
-        } else {
-            debugStr += "Drag map to multibuild\n";
-        }
-        debugStr += "Tile: " + posStr + " | FPS: " + std::to_string(calculatedFPS);
-
-        uiDebug->text->setString(debugStr);
-        uiDebug->position->x = WINDOW_W - uiDebug->shape->getGlobalBounds().getSize().x - 20;
-    }
-    if (uiTime != NULL && uiTime->text != NULL && uiMoney != NULL && uiMoney->shape != NULL) {
-        uiTime->text->setString(std::to_string(day) + "/" + std::to_string(mon) + "/" + std::to_string(yr));
-        uiTime->position->x = 40 + uiMoney->shape->getGlobalBounds().getPosition().x + uiMoney->shape->getGlobalBounds().getSize().x;
-    }
-    if (uiMoney != NULL && uiMoney->text != NULL) {
-        uiMoney->text->setString("$" + std::to_string(money));
-    }
-    if (uiStats != NULL && uiStats->text != NULL) {
-        int happy = happinessSystem.cityHappiness;
-        std::string happyIcon = (happy >= 75) ? "[Great :D]" : ((happy >= 50) ? "[Fair :)]" : "[Low :(]");
-        uiStats->text->setString(
-            " CITY STATS  " + happyIcon + "\n"
-            " Happiness:    " + std::to_string(happy) + "%\n"
-            "  - Education: " + std::to_string(townStats[2]) + "%\n"
-            "  - Safety:    " + std::to_string(townStats[3]) + "%\n"
-            "  - Health:    " + std::to_string(townStats[4]) + "%\n"
-            "  - Jobs:      " + std::to_string(townStats[8]) + "%\n\n"
-            " POPULATION / CAPACITY\n"
-            " Res: " + std::to_string(townPopulation[0]) + " / " + std::to_string(townCapacity[0]) + "\n"
-            " Com: " + std::to_string(townPopulation[1]) + " / " + std::to_string(townCapacity[1]) + "\n"
-            " Ind: " + std::to_string(townPopulation[2]) + " / " + std::to_string(townCapacity[2]) + "\n\n"
-            " TAX RATES\n"
-            " Res: " + std::to_string(townTaxes[0]) + "% | Com: " + std::to_string(townTaxes[1]) + "% | Ind: " + std::to_string(townTaxes[2]) + "%"
-        );
-    }
 }
 
 void Play_Scene::populateCity() {
@@ -721,101 +958,130 @@ void Play_Scene::populateCity() {
 }
 
 void Play_Scene::buildTestWorld() {
-    auto setTile = [&](int x, int y, Entity* ent) {
+    auto setRoad = [&](int x, int y) {
         if (x >= 0 && x < tileMapW && y >= 0 && y < tileMapH) {
             delete entities[x][y];
-            entities[x][y] = ent;
+            entities[x][y] = new DirtRoad(x, y);
         }
     };
 
-    // 1. Road Network
+    auto set2x2 = [&](int rx, int ry, BuildTool tool, int tier = 1, int variant = 1) {
+        if (rx < 0 || rx + 1 >= tileMapW || ry < 0 || ry + 1 >= tileMapH) return;
+        for (int dx = 0; dx <= 1; dx++) {
+            for (int dy = 0; dy <= 1; dy++) {
+                delete entities[rx + dx][ry + dy];
+                entities[rx + dx][ry + dy] = NULL;
+            }
+        }
+        Zone* mz = NULL;
+        std::string baseTex = "grass";
+        std::string typeName = "";
+        if (tool == TOOL_RESIDENTIAL) {
+            mz = new ResidentalZone(rx, ry);
+            mz->tier = tier;
+            mz->variant = variant;
+            dynamic_cast<ResidentalZone*>(mz)->updateBuildingTexture();
+            baseTex = "zone_residental";
+            typeName = "ResidentalZone";
+        } else if (tool == TOOL_COMMERCIAL) {
+            mz = new CommericalZone(rx, ry);
+            mz->tier = tier;
+            mz->variant = variant;
+            dynamic_cast<CommericalZone*>(mz)->updateBuildingTexture();
+            baseTex = "zone_commercial";
+            typeName = "CommericalZone";
+        } else if (tool == TOOL_INDUSTRIAL) {
+            mz = new IndustrialZone(rx, ry);
+            mz->tier = tier;
+            mz->variant = variant;
+            dynamic_cast<IndustrialZone*>(mz)->updateBuildingTexture();
+            baseTex = "zone_industrial";
+            typeName = "IndustrialZone";
+        } else if (tool == TOOL_FARM) {
+            mz = new FarmZone(rx, ry);
+            mz->variant = variant;
+            dynamic_cast<FarmZone*>(mz)->updateBuildingTexture();
+            baseTex = "zone_farm";
+            typeName = "FarmZone";
+        } else if (tool == TOOL_SCHOOL) {
+            mz = new SchoolZone(rx, ry);
+            typeName = "SchoolZone";
+        } else if (tool == TOOL_CHURCH) {
+            mz = new ChurchZone(rx, ry);
+            typeName = "ChurchZone";
+        } else if (tool == TOOL_PARK) {
+            mz = new ParkZone(rx, ry);
+            typeName = "ParkZone";
+        } else if (tool == TOOL_HARBOUR) {
+            mz = new HarbourZone(rx, ry);
+            typeName = "HarbourZone";
+        }
+
+        if (mz != NULL) {
+            entities[rx][ry] = mz;
+            entities[rx + 1][ry]     = new SubZone(rx + 1, ry,     rx, ry, typeName, baseTex);
+            entities[rx][ry + 1]     = new SubZone(rx,     ry + 1, rx, ry, typeName, baseTex);
+            entities[rx + 1][ry + 1] = new SubZone(rx + 1, ry + 1, rx, ry, typeName, baseTex);
+        }
+    };
+
+    // 1. 1x1 Roads Network
     // East-West Boulevard (y = 8)
-    for (int x = 2; x <= 16; x++) {
-        setTile(x, 8, new DirtRoad(x, 8));
-    }
+    for (int x = 0; x < tileMapW; x++) setRoad(x, 8);
     // North-South Avenue (x = 9)
-    for (int y = 2; y <= 15; y++) {
-        setTile(9, y, new DirtRoad(9, y));
-    }
-    // Residential Cross Street (y = 4)
-    for (int x = 3; x <= 9; x++) {
-        setTile(x, 4, new DirtRoad(x, 4));
-    }
-    // Commercial Cross Street (y = 4)
-    for (int x = 9; x <= 16; x++) {
-        setTile(x, 4, new DirtRoad(x, 4));
-    }
-    // Farmland Road Loop (West)
-    for (int y = 9; y <= 14; y++) {
-        setTile(3, y, new DirtRoad(3, y));
-    }
-    for (int x = 3; x <= 9; x++) {
-        setTile(x, 14, new DirtRoad(x, 14));
-    }
-    // Industrial Access Road Loop (East)
-    for (int y = 9; y <= 14; y++) {
-        setTile(15, y, new DirtRoad(15, y));
-    }
-    for (int x = 9; x <= 15; x++) {
-        setTile(x, 14, new DirtRoad(x, 14));
-    }
+    for (int y = 0; y < tileMapH; y++) setRoad(9, y);
+    // Residential Loop
+    for (int x = 1; x <= 8; x++) setRoad(x, 3);
+    for (int y = 3; y <= 8; y++) setRoad(1, y);
+    // Commercial Loop
+    for (int x = 10; x <= 18; x++) setRoad(x, 3);
+    for (int y = 3; y <= 8; y++) setRoad(18, y);
+    // Farmland Loop
+    for (int x = 1; x <= 8; x++) setRoad(x, 15);
+    for (int y = 8; y <= 15; y++) setRoad(1, y);
+    // Industrial Loop
+    for (int x = 10; x <= 18; x++) setRoad(x, 15);
+    for (int y = 8; y <= 15; y++) setRoad(18, y);
 
-    // 2. Residential Neighborhood (Northwest quadrant)
-    int resCoords[][2] = {
-        {4, 2}, {5, 2}, {6, 2}, {7, 2},
-        {4, 3}, {5, 3}, {6, 3}, {7, 3},
-        {4, 5}, {5, 5}, {6, 5},
-        {4, 6}, {5, 6}, {6, 6},
-        {4, 7}, {5, 7}
-    };
-    for (const auto& c : resCoords) {
-        setTile(c[0], c[1], new ResidentalZone(c[0], c[1]));
-    }
+    // 2. 2x2 Residential Buildings (NW quadrant)
+    set2x2(3, 4, TOOL_RESIDENTIAL, 1, 1); // T1 Suburban Cottages
+    set2x2(6, 4, TOOL_RESIDENTIAL, 2, 1); // T2 Brick Apartments
+    set2x2(3, 1, TOOL_RESIDENTIAL, 3, 1); // T3 Highrise Luxury Tower
+    set2x2(6, 1, TOOL_RESIDENTIAL, 2, 2); // T2 Urban Condominiums
 
-    // 3. Civic Hub & Parks (Central residential border)
-    setTile(8, 7, new SchoolZone(8, 7));
-    setTile(7, 7, new ChurchZone(7, 7));
-    setTile(7, 5, new ParkZone(7, 5));
-    setTile(8, 5, new ParkZone(8, 5));
+    // 3. 2x2 Civics Hub
+    set2x2(7, 6, TOOL_SCHOOL); // Elementary School Campus
+    set2x2(2, 6, TOOL_CHURCH); // Gothic Cathedral
+    set2x2(4, 6, TOOL_PARK);   // Grand Nature Park with fountain
 
-    // 4. Commercial Downtown (Northeast quadrant)
-    int comCoords[][2] = {
-        {10, 2}, {11, 2}, {12, 2}, {13, 2}, {14, 2},
-        {10, 3}, {11, 3}, {12, 3}, {13, 3}, {14, 3},
-        {10, 5}, {11, 5}, {12, 5}, {13, 5},
-        {10, 6}, {11, 6}, {12, 6},
-        {10, 7}, {11, 7}
-    };
-    for (const auto& c : comCoords) {
-        setTile(c[0], c[1], new CommericalZone(c[0], c[1]));
-    }
-    setTile(14, 6, new ParkZone(14, 6)); // Downtown Urban Square
+    // 4. 2x2 Commercial Downtown (NE quadrant)
+    set2x2(10, 4, TOOL_COMMERCIAL, 1, 1); // T1 Corner Grocery
+    set2x2(13, 4, TOOL_COMMERCIAL, 2, 1); // T2 Shopping Plaza
+    set2x2(10, 1, TOOL_COMMERCIAL, 3, 1); // T3 Corporate Banking Tower
+    set2x2(13, 1, TOOL_COMMERCIAL, 2, 2); // T2 Department Store
+    set2x2(15, 6, TOOL_PARK);             // Downtown Plaza Park
 
-    // 5. Agricultural Farmland (Southwest quadrant)
-    for (int x = 4; x <= 8; x++) {
-        for (int y = 9; y <= 13; y++) {
-            setTile(x, y, new FarmZone(x, y));
+    // 5. 2x2 Agricultural Farmlands (SW quadrant)
+    set2x2(3, 9,  TOOL_FARM, 1, 1); // Barn & Wheat Silo
+    set2x2(6, 9,  TOOL_FARM, 1, 2); // Windmill Homestead
+    set2x2(3, 12, TOOL_FARM, 1, 1); // Barn & Silo
+    set2x2(6, 12, TOOL_FARM, 1, 2); // Windmill Homestead
+
+    // 6. 2x2 Industrial District (SE quadrant)
+    set2x2(10, 9,  TOOL_INDUSTRIAL, 1, 1); // T1 Scrap Workshop
+    set2x2(13, 9,  TOOL_INDUSTRIAL, 2, 1); // T2 Manufacturing Plant
+    set2x2(10, 12, TOOL_INDUSTRIAL, 3, 1); // T3 Microchip Clean-Fab
+    set2x2(13, 12, TOOL_INDUSTRIAL, 2, 2); // T2 Heavy Machine Assembly
+
+    // 7. Water Basin & Harbours (South shoreline)
+    for (int x = 7; x <= 16; x++) {
+        for (int y = 17; y < tileMapH; y++) {
+            delete entities[x][y];
+            entities[x][y] = new WaterTile(x, y);
         }
     }
-
-    // 6. Industrial Manufacturing District (Southeast quadrant)
-    for (int x = 10; x <= 14; x++) {
-        for (int y = 9; y <= 13; y++) {
-            setTile(x, y, new IndustrialZone(x, y));
-        }
-    }
-
-    // 7. Water Basin & Trade Harbour (South shoreline)
-    for (int x = 9; x <= 18; x++) {
-        for (int y = 16; y <= 18; y++) {
-            setTile(x, y, new WaterTile(x, y));
-        }
-    }
-    for (int x = 11; x <= 16; x++) {
-        setTile(x, 15, new WaterTile(x, 15));
-    }
-    setTile(12, 14, new HarbourZone(12, 14));
-    setTile(13, 14, new HarbourZone(13, 14));
+    set2x2(8, 15,  TOOL_HARBOUR); // Trade Harbour
+    set2x2(12, 15, TOOL_HARBOUR); // Trade Harbour
 
     // 8. Connect and autotile all roads
     for (int i = 0; i < tileMapW; i++) {
@@ -826,4 +1092,7 @@ void Play_Scene::buildTestWorld() {
             }
         }
     }
+
+    // Run initial happiness simulation pass to establish coverage
+    happinessSystem.updateSimulation();
 }

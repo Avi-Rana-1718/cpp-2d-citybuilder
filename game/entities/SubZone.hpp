@@ -4,13 +4,15 @@
 
 class SubZone : public Zone {
 public:
-    SubZone(int posX, int posY, int rX, int rY, const std::string& typeName);
+    SubZone(int posX, int posY, int rX, int rY, const std::string& typeName, const std::string& baseTexKey = "");
     ~SubZone() = default;
 
     void update(float deltaTime) override;
+    void drawGround(sf::RenderWindow& window) override;
+    void drawBuilding(sf::RenderWindow& window) override;
 };
 
-inline SubZone::SubZone(int posX, int posY, int rX, int rY, const std::string& typeName) {
+inline SubZone::SubZone(int posX, int posY, int rX, int rY, const std::string& typeName, const std::string& baseTexKey) {
     setName(typeName);
     isActive = false;
     isMultiTile = true;
@@ -18,6 +20,7 @@ inline SubZone::SubZone(int posX, int posY, int rX, int rY, const std::string& t
     rootX = rX;
     rootY = rY;
     level = 0;
+    zoneBaseTexture = baseTexKey;
 
     this->posX = posX;
     this->posY = posY;
@@ -29,8 +32,14 @@ inline SubZone::SubZone(int posX, int posY, int rX, int rY, const std::string& t
     shape = NULL;
     delete text;
     text = NULL;
-    delete sprite;
-    sprite = NULL;
+
+    sprite = new sf::Sprite;
+    if (!zoneBaseTexture.empty() && m_textures.count(zoneBaseTexture)) {
+        sprite->setTexture(m_textures[zoneBaseTexture]);
+    } else {
+        sprite->setTexture(m_textures["grass"]);
+    }
+    sprite->setScale(sf::Vector2f(2.f, 2.f));
 }
 
 inline void SubZone::update(float deltaTime) {
@@ -40,4 +49,15 @@ inline void SubZone::update(float deltaTime) {
             isActive = entities[rootX][rootY]->isActive;
         }
     }
+}
+
+inline void SubZone::drawGround(sf::RenderWindow& window) {
+    if (sprite != NULL) {
+        sprite->setPosition(position->x, position->y);
+        window.draw(*sprite);
+    }
+}
+
+inline void SubZone::drawBuilding(sf::RenderWindow& window) {
+    // Only master root tile draws the 2x2 building complex
 }

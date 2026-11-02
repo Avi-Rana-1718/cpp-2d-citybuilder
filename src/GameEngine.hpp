@@ -45,6 +45,40 @@ GameEngine::GameEngine() {
     assets.addTexture("harbour", "harbour.png");
     assets.addTexture("water", "water.png");
 
+    // Zone Designation Ground Tiles
+    assets.addTexture("zone_residental", "zone_residental.png");
+    assets.addTexture("zone_commercial", "zone_commercial.png");
+    assets.addTexture("zone_industrial", "zone_industrial.png");
+    assets.addTexture("zone_farm", "zone_farm.png");
+
+    // 2x2 Residential Tiers & Variants
+    assets.addTexture("res_t1_v1", "res_t1_v1.png");
+    assets.addTexture("res_t1_v2", "res_t1_v2.png");
+    assets.addTexture("res_t2_v1", "res_t2_v1.png");
+    assets.addTexture("res_t2_v2", "res_t2_v2.png");
+    assets.addTexture("res_t3_v1", "res_t3_v1.png");
+    assets.addTexture("res_t3_v2", "res_t3_v2.png");
+
+    // 2x2 Commercial Tiers & Variants
+    assets.addTexture("com_t1_v1", "com_t1_v1.png");
+    assets.addTexture("com_t1_v2", "com_t1_v2.png");
+    assets.addTexture("com_t2_v1", "com_t2_v1.png");
+    assets.addTexture("com_t2_v2", "com_t2_v2.png");
+    assets.addTexture("com_t3_v1", "com_t3_v1.png");
+    assets.addTexture("com_t3_v2", "com_t3_v2.png");
+
+    // 2x2 Industrial Tiers & Variants
+    assets.addTexture("ind_t1_v1", "ind_t1_v1.png");
+    assets.addTexture("ind_t1_v2", "ind_t1_v2.png");
+    assets.addTexture("ind_t2_v1", "ind_t2_v1.png");
+    assets.addTexture("ind_t2_v2", "ind_t2_v2.png");
+    assets.addTexture("ind_t3_v1", "ind_t3_v1.png");
+    assets.addTexture("ind_t3_v2", "ind_t3_v2.png");
+
+    // 2x2 Farm Variants
+    assets.addTexture("farm_v1", "farm_v1.png");
+    assets.addTexture("farm_v2", "farm_v2.png");
+
     currentScene = new Play_Scene();
 }
 

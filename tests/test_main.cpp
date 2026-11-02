@@ -674,52 +674,161 @@ TEST_CASE(Test_Toolbar_NewCategoriesAndToolNames) {
 }
 
 // -------------------------------------------------------------
-// 11. Civic Buildings, Demolition & World Coverage Tests
+// 11. Multi-Tile 2x2 Structures, Tiers, Variants & Demolition Tests
 // -------------------------------------------------------------
 TEST_CASE(Test_CivicServices_SchoolAndChurchProperties) {
     ScopedCoutSilence silence;
 
     SchoolZone school(3, 3);
     ASSERT_EQ(school.getName(), "SchoolZone");
+    ASSERT_TRUE(school.isMultiTile);
+    ASSERT_FALSE(school.isSubTile);
+    ASSERT_EQ(school.footprintW, 2);
+    ASSERT_EQ(school.footprintH, 2);
     ASSERT_EQ(school.serviceRadius, 5);
     ASSERT_FALSE(school.isActive);
 
     ChurchZone church(6, 6);
     ASSERT_EQ(church.getName(), "ChurchZone");
+    ASSERT_TRUE(church.isMultiTile);
+    ASSERT_FALSE(church.isSubTile);
+    ASSERT_EQ(church.footprintW, 2);
+    ASSERT_EQ(church.footprintH, 2);
     ASSERT_EQ(church.serviceRadius, 4);
     ASSERT_FALSE(church.isActive);
 
     ParkZone park(8, 8);
     ASSERT_EQ(park.getName(), "ParkZone");
+    ASSERT_TRUE(park.isMultiTile);
+    ASSERT_FALSE(park.isSubTile);
+    ASSERT_EQ(park.footprintW, 2);
+    ASSERT_EQ(park.footprintH, 2);
     ASSERT_EQ(park.serviceRadius, 4);
+    ASSERT_TRUE(park.isActive);
+
+    HarbourZone harbour(10, 10);
+    ASSERT_EQ(harbour.getName(), "HarbourZone");
+    ASSERT_TRUE(harbour.isMultiTile);
+    ASSERT_FALSE(harbour.isSubTile);
+    ASSERT_EQ(harbour.footprintW, 2);
+    ASSERT_EQ(harbour.footprintH, 2);
+}
+
+TEST_CASE(Test_Zone_TiersVariantsAndHappinessProgression) {
+    ScopedCoutSilence silence;
+
+    ResidentalZone res(4, 4);
+    ASSERT_TRUE(res.isMultiTile);
+    ASSERT_EQ(res.footprintW, 2);
+    ASSERT_EQ(res.footprintH, 2);
+    ASSERT_EQ(res.tier, 1);
+    ASSERT_TRUE(res.variant == 1 || res.variant == 2);
+    ASSERT_EQ(res.zoneBaseTexture, "zone_residental");
+
+    int initialCap = res.capacity;
+    res.upgradeTier(2);
+    ASSERT_EQ(res.tier, 2);
+    ASSERT_TRUE(res.capacity > initialCap);
+    ASSERT_TRUE(!res.getVariantName().empty());
+
+    res.upgradeTier(3);
+    ASSERT_EQ(res.tier, 3);
+    ASSERT_TRUE(res.capacity > initialCap * 2);
+
+    // Downgrade back to tier 1
+    res.downgradeTier(1);
+    ASSERT_EQ(res.tier, 1);
+    ASSERT_EQ(res.capacity, 25);
+
+    // Commercial zone tiers
+    CommericalZone com(6, 6);
+    ASSERT_EQ(com.tier, 1);
+    ASSERT_EQ(com.zoneBaseTexture, "zone_commercial");
+    com.upgradeTier(2);
+    ASSERT_EQ(com.tier, 2);
+    com.upgradeTier(3);
+    ASSERT_EQ(com.tier, 3);
+
+    // Industrial zone tiers
+    IndustrialZone ind(8, 8);
+    ASSERT_EQ(ind.tier, 1);
+    ASSERT_EQ(ind.zoneBaseTexture, "zone_industrial");
+    ind.upgradeTier(2);
+    ASSERT_EQ(ind.tier, 2);
+    ind.upgradeTier(3);
+    ASSERT_EQ(ind.tier, 3);
+
+    // Farm zone variants
+    FarmZone farm(10, 10);
+    ASSERT_TRUE(farm.variant == 1 || farm.variant == 2);
+    ASSERT_EQ(farm.zoneBaseTexture, "zone_farm");
+}
+
+TEST_CASE(Test_Zone_SameBaseTextureAcrossSubZones) {
+    ScopedCoutSilence silence;
+
+    ResidentalZone res(2, 2);
+    SubZone sub1(3, 2, 2, 2, "ResidentalZone", "zone_residental");
+    SubZone sub2(2, 3, 2, 2, "ResidentalZone", "zone_residental");
+    SubZone sub3(3, 3, 2, 2, "ResidentalZone", "zone_residental");
+
+    ASSERT_EQ(res.zoneBaseTexture, "zone_residental");
+    ASSERT_EQ(sub1.zoneBaseTexture, "zone_residental");
+    ASSERT_EQ(sub2.zoneBaseTexture, "zone_residental");
+    ASSERT_EQ(sub3.zoneBaseTexture, "zone_residental");
+
+    ASSERT_TRUE(sub1.isMultiTile && sub1.isSubTile);
+    ASSERT_TRUE(sub2.isMultiTile && sub2.isSubTile);
+    ASSERT_TRUE(sub3.isMultiTile && sub3.isSubTile);
+    ASSERT_EQ(sub1.rootX, 2);
+    ASSERT_EQ(sub1.rootY, 2);
 }
 
 TEST_CASE(Test_Demolition_RestoresGrassTile) {
     clearTestGrid();
     ScopedCoutSilence silence;
 
-    int x = 4, y = 4;
-    delete entities[x][y];
-    entities[x][y] = new SchoolZone(x, y);
-    ASSERT_EQ(entities[x][y]->getName(), "SchoolZone");
+    // Simulate 2x2 multi-tile placement at (4, 4)
+    int rx = 4, ry = 4;
+    delete entities[rx][ry];
+    delete entities[rx + 1][ry];
+    delete entities[rx][ry + 1];
+    delete entities[rx + 1][ry + 1];
 
-    // Road adjacent to activate
-    delete entities[x + 1][y];
-    entities[x + 1][y] = new DirtRoad(x + 1, y);
+    SchoolZone* school = new SchoolZone(rx, ry);
+    entities[rx][ry] = school;
+    entities[rx + 1][ry]     = new SubZone(rx + 1, ry,     rx, ry, "SchoolZone", "grass");
+    entities[rx][ry + 1]     = new SubZone(rx,     ry + 1, rx, ry, "SchoolZone", "grass");
+    entities[rx + 1][ry + 1] = new SubZone(rx + 1, ry + 1, rx, ry, "SchoolZone", "grass");
 
-    SchoolZone* s = dynamic_cast<SchoolZone*>(entities[x][y]);
-    s->checkValid();
-    ASSERT_TRUE(s->isActive);
+    // Road adjacent to perimeter at (6, 4)
+    delete entities[6][4];
+    entities[6][4] = new DirtRoad(6, 4);
 
-    // Bulldoze SchoolZone -> must restore cleanly to GrassTile
-    delete entities[x][y];
-    entities[x][y] = new GrassTile(x, y);
-    ASSERT_EQ(entities[x][y]->getName(), "GrassTile");
+    school->checkValid();
+    ASSERT_TRUE(school->isActive);
 
-    // Bulldoze Road -> must restore cleanly to GrassTile
-    delete entities[x + 1][y];
-    entities[x + 1][y] = new GrassTile(x + 1, y);
-    ASSERT_EQ(entities[x + 1][y]->getName(), "GrassTile");
+    // Bulldoze one child tile at (5, 5) -> multi-tile demolition restores all 4 to GrassTile
+    Zone* z = dynamic_cast<Zone*>(entities[rx + 1][ry + 1]);
+    ASSERT_TRUE(z != NULL && z->isMultiTile);
+    int rootX = z->isSubTile ? z->rootX : (rx + 1);
+    int rootY = z->isSubTile ? z->rootY : (ry + 1);
+    ASSERT_EQ(rootX, rx);
+    ASSERT_EQ(rootY, ry);
+
+    for (int dx = 0; dx <= 1; dx++) {
+        for (int dy = 0; dy <= 1; dy++) {
+            delete entities[rootX + dx][rootY + dy];
+            entities[rootX + dx][rootY + dy] = new GrassTile(rootX + dx, rootY + dy);
+        }
+    }
+
+    // Verify all 4 tiles are restored to GrassTile
+    for (int dx = 0; dx <= 1; dx++) {
+        for (int dy = 0; dy <= 1; dy++) {
+            ASSERT_EQ(entities[rx + dx][ry + dy]->getName(), "GrassTile");
+        }
+    }
 
     clearTestGrid();
 }
@@ -728,31 +837,38 @@ TEST_CASE(Test_World_FullBuildingCoverage) {
     clearTestGrid();
     ScopedCoutSilence silence;
 
-    // Place one of each key zone type
+    // Place 1x1 road and 2x2 multi-tile structures
     delete entities[2][2]; entities[2][2] = new DirtRoad(2, 2);
-    delete entities[3][2]; entities[3][2] = new ResidentalZone(3, 2);
-    delete entities[4][2]; entities[4][2] = new CommericalZone(4, 2);
-    delete entities[5][2]; entities[5][2] = new IndustrialZone(5, 2);
-    delete entities[6][2]; entities[6][2] = new FarmZone(6, 2);
-    delete entities[7][2]; entities[7][2] = new SchoolZone(7, 2);
-    delete entities[8][2]; entities[8][2] = new ChurchZone(8, 2);
-    delete entities[9][2]; entities[9][2] = new ParkZone(9, 2);
+
+    int rx = 3, ry = 2;
+    delete entities[rx][ry];
+    delete entities[rx + 1][ry];
+    delete entities[rx][ry + 1];
+    delete entities[rx + 1][ry + 1];
+
+    ResidentalZone* rz = new ResidentalZone(rx, ry);
+    entities[rx][ry] = rz;
+    entities[rx + 1][ry]     = new SubZone(rx + 1, ry,     rx, ry, "ResidentalZone", "zone_residental");
+    entities[rx][ry + 1]     = new SubZone(rx,     ry + 1, rx, ry, "ResidentalZone", "zone_residental");
+    entities[rx + 1][ry + 1] = new SubZone(rx + 1, ry + 1, rx, ry, "ResidentalZone", "zone_residental");
+
+    rz->checkValid();
+    ASSERT_TRUE(rz->isActive);
+
+    // Place water and adjacent Harbour
     delete entities[10][2]; entities[10][2] = new WaterTile(10, 2);
-    delete entities[10][1]; entities[10][1] = new HarbourZone(10, 1);
+    int hx = 8, hy = 1;
+    delete entities[hx][hy];
+    delete entities[hx + 1][hy];
+    delete entities[hx][hy + 1];
+    delete entities[hx + 1][hy + 1];
 
-    ASSERT_EQ(entities[2][2]->getName(), "DirtRoad");
-    ASSERT_EQ(entities[3][2]->getName(), "ResidentalZone");
-    ASSERT_EQ(entities[4][2]->getName(), "CommericalZone");
-    ASSERT_EQ(entities[5][2]->getName(), "IndustrialZone");
-    ASSERT_EQ(entities[6][2]->getName(), "FarmZone");
-    ASSERT_EQ(entities[7][2]->getName(), "SchoolZone");
-    ASSERT_EQ(entities[8][2]->getName(), "ChurchZone");
-    ASSERT_EQ(entities[9][2]->getName(), "ParkZone");
-    ASSERT_EQ(entities[10][2]->getName(), "WaterTile");
-    ASSERT_EQ(entities[10][1]->getName(), "HarbourZone");
+    HarbourZone* hb = new HarbourZone(hx, hy);
+    entities[hx][hy] = hb;
+    entities[hx + 1][hy]     = new SubZone(hx + 1, hy,     hx, hy, "HarbourZone", "grass");
+    entities[hx][hy + 1]     = new SubZone(hx,     hy + 1, hx, hy, "HarbourZone", "grass");
+    entities[hx + 1][hy + 1] = new SubZone(hx + 1, hy + 1, hx, hy, "HarbourZone", "grass");
 
-    // Harbours adjacent to water activate
-    HarbourZone* hb = dynamic_cast<HarbourZone*>(entities[10][1]);
     hb->checkValid();
     ASSERT_TRUE(hb->isActive);
 
@@ -777,6 +893,37 @@ int main() {
     m_textures["school"] = sf::Texture();
     m_textures["church"] = sf::Texture();
     m_textures["park"] = sf::Texture();
+
+    // Zone bases
+    m_textures["zone_residental"] = sf::Texture();
+    m_textures["zone_commercial"] = sf::Texture();
+    m_textures["zone_industrial"] = sf::Texture();
+    m_textures["zone_farm"] = sf::Texture();
+
+    // Tiers & Variants
+    m_textures["res_t1_v1"] = sf::Texture();
+    m_textures["res_t1_v2"] = sf::Texture();
+    m_textures["res_t2_v1"] = sf::Texture();
+    m_textures["res_t2_v2"] = sf::Texture();
+    m_textures["res_t3_v1"] = sf::Texture();
+    m_textures["res_t3_v2"] = sf::Texture();
+
+    m_textures["com_t1_v1"] = sf::Texture();
+    m_textures["com_t1_v2"] = sf::Texture();
+    m_textures["com_t2_v1"] = sf::Texture();
+    m_textures["com_t2_v2"] = sf::Texture();
+    m_textures["com_t3_v1"] = sf::Texture();
+    m_textures["com_t3_v2"] = sf::Texture();
+
+    m_textures["ind_t1_v1"] = sf::Texture();
+    m_textures["ind_t1_v2"] = sf::Texture();
+    m_textures["ind_t2_v1"] = sf::Texture();
+    m_textures["ind_t2_v2"] = sf::Texture();
+    m_textures["ind_t3_v1"] = sf::Texture();
+    m_textures["ind_t3_v2"] = sf::Texture();
+
+    m_textures["farm_v1"] = sf::Texture();
+    m_textures["farm_v2"] = sf::Texture();
 
     return TestRegistry::instance().runAll();
 }
