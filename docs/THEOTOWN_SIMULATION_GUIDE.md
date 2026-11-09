@@ -35,6 +35,7 @@ Launch the game via:
 - `H` : **Trade Harbour**
 - `W` : **Water Body**
 - `X` : **Demolish / Bulldoze**
+- `O` : **Cycle map view** (Normal → Fertility → Groundwater → Deposits)
 
 ---
 
@@ -63,7 +64,7 @@ Every developable zone features dynamic growth, road connection validation, capa
 
 ### 1. Residential Zones (`ResidentalZone`)
 - **Cost**: $100 | **Tax Index**: `townTaxes[0]`
-- **Connection**: Requires adjacent `DirtRoad` or another active `ResidentalZone`.
+- **Connection**: Requires a `DirtRoad` on one of its 8 edge-sharing border tiles (no chaining through other zones).
 - **Tiers**:
   - **Tier 1 (Suburban Cottages)**: 10–30 population capacity. Standard sprite.
   - **Tier 2 (Brick Apartments)**: Triggered when zone happiness reaches $\ge 60\%$. Capacity $\times 2.0$, income $\times 2.2$. Visual green-brick tint.
@@ -71,7 +72,7 @@ Every developable zone features dynamic growth, road connection validation, capa
 
 ### 2. Commercial Zones (`CommericalZone`)
 - **Cost**: $100 | **Tax Index**: `townTaxes[1]`
-- **Connection**: Requires adjacent `DirtRoad` or another active `CommericalZone`.
+- **Connection**: Requires a `DirtRoad` on one of its 8 edge-sharing border tiles.
 - **Tiers**:
   - **Tier 1 (Corner Shops)**: 15–40 job capacity. Custom commercial storefront sprite.
   - **Tier 2 (Shopping Plazas)**: Auto-develops once town population surpasses 50 citizens. Capacity $\times 1.8$, income $\times 2.0$.
@@ -106,13 +107,13 @@ Public services project radial coverage across the grid that citizens require to
 ```
 
 - **Elementary School (`SchoolZone`)**
-  - **Footprint**: **2×2 Multi-Tile** | **Sprite**: 48×64 Pixel-Art (`school.png`)
+  - **Footprint**: **2×2 True Isometric Diamond** | **Sprite**: 48×64 Pixel-Art (`school.png`)
   - **Cost**: $200 | **Coverage Radius**: 5 tiles
   - Features a multi-wing brick hall, bell tower with golden bell, courtyard, and flag pole.
-  - Occupies 4 tiles `(x, y)` through `(x+1, y+1)`. Road adjacency along its 12-tile perimeter activates the entire complex.
+  - Occupies 4 tiles forming a true 2:1 isometric diamond: `(x, y)`, `(x+1, y)`, `(x-1, y+1)`, and `(x, y+1)`. A road on any of the 8 tiles sharing a full diamond edge with the footprint (`BORDER_2X2` in `WorldData.hpp`) activates the entire complex. Tiles that only touch at a diamond tip (`(i, j±1)` directions) do not count. Placement (`canPlaceTile`) and activation (`checkValid`) use the same rule, and road access is re-checked only when a nearby road, water tile or building changes. Harbours need both a road and water on their border.
   - Provides $+100$ Education score to all residences within range. Prerequisite for Tier 3 Highrise estates.
 - **Community Church (`ChurchZone`)**
-  - **Footprint**: **2×2 Multi-Tile** | **Sprite**: 48×70 Pixel-Art (`church.png`)
+  - **Footprint**: **2×2 True Isometric Diamond** | **Sprite**: 48×70 Pixel-Art (`church.png`)
   - **Cost**: $180 | **Coverage Radius**: 4 tiles
   - Features stone buttresses, steep slate roof, large arched stained-glass rose window, and gothic belfry spire with a golden crucifix reaching into the skyline.
   - Occupies 4 tiles with unified road connectivity, hover preview, and demolition propagation.
@@ -121,9 +122,9 @@ Public services project radial coverage across the grid that citizens require to
   - **Cost**: $80 | **Coverage Radius**: 4 tiles
   - Accessible naturally without roads. Absorbs industrial pollution, boosts Health ($+70$) and Recreation ($+100$).
 - **Trade Harbour (`HarbourZone`)**
-  - **Cost**: $250 | **Placement**: Placed on shoreline adjacent to `WaterTile` or `DirtRoad`.
+  - **Cost**: $250 | **Placement**: Placed on the shoreline (touching water terrain) with a `DirtRoad` connection.
   - Generates $+30$ maritime trade jobs and strong periodic tax dividends ($+\$100\text{--}\$150$).
-- **Water Bodies (`WaterTile`)**
+- **Water Bodies (`Terrain::Water`)**
   - **Cost**: $20 | Natural terrain foundation and maritime canal network.
 
 ---
@@ -150,15 +151,34 @@ $$\text{Zone Happiness} = (0.25 \times \text{Jobs}) + (0.20 \times \text{Edu}) +
 
 ---
 
+## 5b. Procedural World & Natural Resources
+
+Each game generates a new 64×64 world from a seed (launch with `--seed N` to replay one; the seed is shown in the top bar).
+
+| Feature | Gameplay effect |
+|---|---|
+| **Ocean, lakes, rivers** | Water blocks building; harbours need a shoreline. |
+| **Sand beaches** | Buildable ground along the ocean coast. |
+| **Forests** | Block building; bulldoze for $15 to clear to grass. |
+| **Forest paths** | Buildable trails through forests; roads can be laid on them. |
+| **Rocky hills** | Block building; bulldoze for $60. Stone and iron are found in and around them. |
+| **Fertility** | Farm income ×0.4 (barren) to ×1.6 (rich). Best near rivers and lakes. |
+| **Groundwater** | Underground water table. Reserved for future wells. |
+| **Coal / Iron / Stone** | Ore and stone clusters. Reserved for future mines. |
+
+Use the **Map View** panel at the top left (or press `O`) to switch between Normal, Fertility, Groundwater and Deposits views. Each view shows a small colour legend under the buttons.
+
+---
+
 ## 6. Performance & Architecture Highlights
 
-- **Throttled Simulation Loop**: While SFML renders at full 60 FPS, the spatial coverage propagation and economy ticks run on an accumulator clock (`simAccumulator >= 1.0f`). This guarantees zero lag even on large maps.
+- **Throttled Simulation Loop**: Rendering runs every frame, but all simulation (taxes, tier changes, happiness coverage) runs once per second in `Play_Scene::runSimulationTick()` via `Zone::simTick()`. Map entities have no per-frame `update()` work.
 - **Display-List Ghosting**: The drag-to-multibuild system uses zero-allocation drawing passes for ghost sprites and colored indicator diamonds.
 - **Leak-Free Memory Model**: All tile replacements properly invoke virtual entity destructors to clean up textures, shapes, and decrement municipal capacity before instantiating new entities.
 
 ---
 
-## 7. Automated Test Suite (20 Tests)
+## 7. Automated Test Suite (45 Tests)
 
 All systems are covered by automated unit and integration tests in `tests/test_main.cpp`:
 
@@ -167,13 +187,13 @@ All systems are covered by automated unit and integration tests in `tests/test_m
 ```
 
 Test coverage includes:
-1. `Test_IsometricProjection_Formula`: Mathematical verification of 2:1 isometric diamond mapping.
+1. `Test_IsometricProjection_Formula`: Mathematical verification of 2:1 isometric diamond mapping ($X = 32x, Y = 32y + 16x$).
 2. `Test_IsometricRaycasting_DiamondCenter & DiamondTips`: Diamond collision math and bounding-box exclusion.
 3. `Test_Toolbar_LayoutAndDefaults & ToolSelection`: Dock coordinate geometry and selection state.
 4. `Test_DragComputation_RectangularBox & RoadLPath`: Rectangular and L-path multibuild computations.
 5. `Test_Zone_CapacityAccounting`: Verification of `townCapacity` additions and subtractions.
-6. `Test_Zone_AdjacencyActivationRules`: Road connection propagation.
-7. `Test_Zone_BoundaryEdgeSafety`: Grid edge $[0, 19]$ bounds safety.
+6. `Test_Zone_AdjacencyActivationRules`: Edge-sharing border activates; tip-touching and corner tiles do not; no chaining.
+7. `Test_Zone_BoundaryEdgeSafety`: Grid edge $[0, 63]$ bounds safety.
 8. `Test_Economy_TaxationCycle & PopulationGrowth`: Calendar tax payment and immigration conservation.
 9. `Test_Roads_AutotilingLogic`: Autotiling neighbor checks (`road` vs `road-mid`).
 10. `Test_IndustrialZone_LifecycleAndTiers`: Industrial tier upgrades and capacity cleanup.
@@ -183,3 +203,24 @@ Test coverage includes:
 14. `Test_HappinessSystem_CoverageMaps`: Spatial radial coverage propagation.
 15. `Test_HappinessSystem_ScoringAndTierProgression`: Autonomous Tier 1 $\to$ Tier 2 upgrade verification.
 16. `Test_Toolbar_NewCategoriesAndToolNames`: Category switching and tool label resolution.
+17. `Test_CivicServices_SchoolAndChurchProperties`: Service radiuses and multi-tile zone attributes.
+18. `Test_Zone_TiersVariantsAndHappinessProgression`: Tier upgrade and downgrade thresholds based on happiness.
+19. `Test_Zone_SameBaseTextureAcrossSubZones`: Uniform ground texture keys (`zone_residental`, etc.) across all 4 diamond tiles.
+20. `Test_Demolition_RestoresGrassTile`: Teardown of any multi-tile building empties all 4 constituent tiles back to natural grass.
+21. `Test_World_FullBuildingCoverage`: Verification of full metropolis structures and harbor shoreline validity.
+22. `Test_TheoTown_CannotBuildOnRoad`: Prevents structure placement colliding with existing roads.
+23. `Test_TheoTown_CannotBuildOnWater`: Prevents building structures or duplicate roads over water bodies.
+24. `Test_TheoTown_RequiresRoadConnection`: Validates road adjacency requirement for residential zones.
+25. `Test_TheoTown_HarbourShorelineRules`: Enforces simultaneous road connectivity and shoreline water contact.
+26. `Test_TheoTown_InsufficientFundsAndBulldoze`: Validates municipal treasury guards and bulldoze demolition fees.
+27. `Test_WorldGen_Deterministic`: Same seed reproduces the world exactly; different seeds differ.
+28. `Test_WorldGen_TerrainMix`: Water 10-45% of the map; forest, rock, sand and every deposit type present.
+29. `Test_WorldGen_ForestPathsExist`: Forest trails are carved across seeds.
+30. `Test_WorldGen_SpawnGuarantee`: 8×8 grass spawn with water within 8 tiles.
+31. `Test_WorldGen_DataInvariants`: Value ranges, barren water/sand/rock.
+32. `Test_WorldGen_NaturalGroundHasNoEntities`: Natural ground has no entities; `tileKind` reads `world[][]`.
+33. `Test_GroundRenderer_OneQuadPerTile`: One quad per tile, rebuilt only when marked dirty.
+34. `Test_Placement_ForestAndRockBlock`: Forest/rock block building; bulldoze costs and clearing.
+35. `Test_Demolition_RestoresTerrainBase`: Demolished roads return to sand / forest path.
+36. `Test_MapView_SelectorButtons`: Map View panel buttons select each view; layout clear of top bar and dock.
+37. `Test_Farm_FertilityScalesIncome`: Farm income scales with soil fertility.
