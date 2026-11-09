@@ -439,6 +439,14 @@ TEST_CASE(Test_Roads_AutotilingLogic) {
     road->check();
     ASSERT_TRUE(road->sprite != NULL);
 
+    // Test diagonal edge-sharing Axis 2 connection: (6, 4) [NE] and (4, 6) [SW]
+    delete entities[6][4];
+    entities[6][4] = new DirtRoad(6, 4);
+    delete entities[4][6];
+    entities[4][6] = new DirtRoad(4, 6);
+    road->check();
+    ASSERT_TRUE(road->sprite != NULL);
+
     clearTestGrid();
 }
 
@@ -1025,11 +1033,13 @@ TEST_CASE(Test_VehicleSystem_DirectionAndRoadAdherence) {
     clearTestGrid();
     ScopedCoutSilence silence;
 
-    // Verify directional math
+    // Verify directional math (Axis 1 horizontal and Axis 2 diagonal edge-sharing)
     ASSERT_EQ(VehicleSystem::computeDirection({5, 5}, {6, 5}), VEH_DIR_SE);
     ASSERT_EQ(VehicleSystem::computeDirection({5, 5}, {4, 5}), VEH_DIR_NW);
     ASSERT_EQ(VehicleSystem::computeDirection({5, 5}, {5, 6}), VEH_DIR_SW);
     ASSERT_EQ(VehicleSystem::computeDirection({5, 5}, {5, 4}), VEH_DIR_NE);
+    ASSERT_EQ(VehicleSystem::computeDirection({5, 5}, {4, 6}), VEH_DIR_SW); // Axis 2 down-left
+    ASSERT_EQ(VehicleSystem::computeDirection({5, 5}, {6, 4}), VEH_DIR_NE); // Axis 2 up-right
 
     // Build 2-tile road: (5, 5) <-> (6, 5)
     delete entities[5][5];

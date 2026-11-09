@@ -68,10 +68,14 @@ public:
     static VehicleDirection computeDirection(const sf::Vector2i& from, const sf::Vector2i& to) {
         int dx = to.x - from.x;
         int dy = to.y - from.y;
+        if (dx > 0 && dy == 0) return VEH_DIR_SE; // Axis 1 (+1, 0): down-right
+        if (dx < 0 && dy == 0) return VEH_DIR_NW; // Axis 1 (-1, 0): up-left
+        if (dx < 0 && dy > 0)  return VEH_DIR_SW; // Axis 2 (-1, +1): down-left
+        if (dx > 0 && dy < 0)  return VEH_DIR_NE; // Axis 2 (+1, -1): up-right
+        if (dy > 0) return VEH_DIR_SW;            // Vertical (0, +1) fallback: down
+        if (dy < 0) return VEH_DIR_NE;            // Vertical (0, -1) fallback: up
         if (dx > 0) return VEH_DIR_SE;
-        if (dx < 0) return VEH_DIR_NW;
-        if (dy > 0) return VEH_DIR_SW;
-        return VEH_DIR_NE;
+        return VEH_DIR_NW;
     }
 
     static std::string getTextureKey(VehicleType type, VehicleDirection dir) {
@@ -111,9 +115,12 @@ public:
 
     std::vector<sf::Vector2i> getConnectedRoads(const sf::Vector2i& tile) const {
         std::vector<sf::Vector2i> neighbors;
-        const int dx[4] = {1, -1, 0, 0};
-        const int dy[4] = {0, 0, 1, -1};
-        for (int i = 0; i < 4; i++) {
+        // Priority 1: Axis 1 (East/West: +1,0 and -1,0)
+        // Priority 2: Axis 2 (SW/NE edge-sharing: -1,+1 and +1,-1)
+        // Priority 3: Vertical fallback (South/North: 0,+1 and 0,-1)
+        const int dx[6] = { 1, -1, -1,  1,  0,  0 };
+        const int dy[6] = { 0,  0,  1, -1,  1, -1 };
+        for (int i = 0; i < 6; i++) {
             int nx = tile.x + dx[i];
             int ny = tile.y + dy[i];
             if (isRoad(nx, ny)) {

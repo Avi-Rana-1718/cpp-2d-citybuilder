@@ -417,17 +417,37 @@ std::vector<sf::Vector2i> Play_Scene::computeDragTiles() const {
     }
 
     if (toolbar.getActiveTool() == TOOL_ROAD) {
-        int stepX = (dragCurrent.x >= dragStart.x) ? 1 : -1;
-        int stepY = (dragCurrent.y >= dragStart.y) ? 1 : -1;
+        int dx = dragCurrent.x - dragStart.x;
+        int dy = dragCurrent.y - dragStart.y;
 
-        for (int x = dragStart.x; ; x += stepX) {
-            tiles.push_back({x, dragStart.y});
-            if (x == dragCurrent.x) break;
-        }
-        for (int y = dragStart.y + stepY; ; y += stepY) {
-            if ((stepY > 0 && y > dragCurrent.y) || (stepY < 0 && y < dragCurrent.y)) break;
-            tiles.push_back({dragCurrent.x, y});
-            if (y == dragCurrent.y) break;
+        // Check if dragging along the edge-sharing Axis 2 (SW/NE: dx == -dy)
+        if (dx != 0 && dy != 0 && (dx == -dy || std::abs(dx + dy) <= std::max(1, std::min(std::abs(dx), std::abs(dy)) / 3))) {
+            int steps = std::max(std::abs(dx), std::abs(dy));
+            int stepX = (dx > 0) ? 1 : -1;
+            int stepY = (dy > 0) ? 1 : -1;
+            if (stepX == stepY) stepY = -stepX;
+
+            int cx = dragStart.x;
+            int cy = dragStart.y;
+            for (int s = 0; s <= steps; s++) {
+                tiles.push_back({cx, cy});
+                if (cx == dragCurrent.x && cy == dragCurrent.y) break;
+                cx += stepX;
+                cy += stepY;
+            }
+        } else {
+            int stepX = (dragCurrent.x >= dragStart.x) ? 1 : -1;
+            int stepY = (dragCurrent.y >= dragStart.y) ? 1 : -1;
+
+            for (int x = dragStart.x; ; x += stepX) {
+                tiles.push_back({x, dragStart.y});
+                if (x == dragCurrent.x) break;
+            }
+            for (int y = dragStart.y + stepY; ; y += stepY) {
+                if ((stepY > 0 && y > dragCurrent.y) || (stepY < 0 && y < dragCurrent.y)) break;
+                tiles.push_back({dragCurrent.x, y});
+                if (y == dragCurrent.y) break;
+            }
         }
     } else {
         int minX = std::max(0, std::min(dragStart.x, dragCurrent.x));
@@ -1275,6 +1295,14 @@ void Play_Scene::buildTestWorld() {
 
     auto set2x2 = [&](int rx, int ry, BuildTool tool, int tier = 1, int variant = 1) {
         if (rx < 0 || rx + 1 >= tileMapW || ry < 0 || ry + 1 >= tileMapH) return;
+        // Never overwrite existing road infrastructure
+        for (int dx = 0; dx <= 1; dx++) {
+            for (int dy = 0; dy <= 1; dy++) {
+                if (entities[rx + dx][ry + dy] != NULL && entities[rx + dx][ry + dy]->getName() == "DirtRoad") {
+                    return;
+                }
+            }
+        }
         for (int dx = 0; dx <= 1; dx++) {
             for (int dy = 0; dy <= 1; dy++) {
                 delete entities[rx + dx][ry + dy];
@@ -1322,8 +1350,8 @@ void Play_Scene::buildTestWorld() {
         }
     };
 
-    // 1. 1x1 Roads Network Across 64x64 Metropolis
-    // 8 Major Horizontal Avenues
+    // 1. 1x1 Roads Network Across 64x64 Metropolis (100% Flush Edge-Sharing)
+    // 8 Major Horizontal Avenues (Axis 1: East / Down-Right along +X)
     for (int x = 2; x <= 61; x++) {
         setRoad(x, 4);   // North Suburb Boulevard
         setRoad(x, 10);  // North Urban Avenue
@@ -1335,126 +1363,121 @@ void Play_Scene::buildTestWorld() {
         setRoad(x, 48);  // South Ocean Coastal Highway
     }
 
-    // 6 Major Vertical Boulevards Connecting All Districts
-    for (int y = 4; y <= 48; y++) {
-        setRoad(2, y);   // West Coastal Highway
-        setRoad(14, y);  // West Metro Crossway
-        setRoad(26, y);  // Central Capitol Crossway
-        setRoad(38, y);  // East Civic Parkway
-        setRoad(50, y);  // Industrial Express Link
-        setRoad(61, y);  // Far East Perimeter Link
+    // 8 Major Edge-Sharing Cross-Boulevards (Axis 2: South-West / Down-Left along x + y = S)
+    // Every consecutive road tile shares a full 32x16 edge with (x-1, y+1) with ZERO diamond tip seams!
+    const int crossBoulevards[] = {24, 36, 48, 60, 72, 84, 96, 108};
+    for (int S : crossBoulevards) {
+        for (int y = 2; y <= 48; y++) {
+            int x = S - y;
+            if (x >= 2 && x <= 61) {
+                setRoad(x, y);
+            }
+        }
     }
 
-    // 2. District 1 (y = 1): Northern Residential Cottages & Bungalows
+    // 2. District 1 (y = 2): Northern Residential Cottages & Bungalows (Touches Avenue at y = 4)
     for (int x = 4; x <= 58; x += 2) {
-        if (x == 14 || x == 26 || x == 38 || x == 50) continue; // Skip vertical road intersections
         if (x % 8 == 0) {
-            set2x2(x, 1, TOOL_PARK);
+            set2x2(x, 2, TOOL_PARK);
         } else if (x % 8 == 2) {
-            set2x2(x, 1, TOOL_CHURCH);
+            set2x2(x, 2, TOOL_CHURCH);
         } else if (x % 4 == 0) {
-            set2x2(x, 1, TOOL_RES_COTTAGES, 1, 2); // Bungalow Homestead
+            set2x2(x, 2, TOOL_RES_COTTAGES, 1, 2); // Bungalow Homestead
         } else {
-            set2x2(x, 1, TOOL_RES_COTTAGES, 1, 1); // Suburban Cottages
+            set2x2(x, 2, TOOL_RES_COTTAGES, 1, 1); // Suburban Cottages
         }
     }
 
-    // 3. District 2 (y = 7): Residential Brownstones & Urban Condominiums
+    // 3. District 2 (y = 8): Residential Brownstones & Urban Condominiums (Touches Avenue at y = 10)
     for (int x = 4; x <= 58; x += 2) {
-        if (x == 14 || x == 26 || x == 38 || x == 50) continue;
         if (x % 12 == 0) {
-            set2x2(x, 7, TOOL_SCHOOL);
+            set2x2(x, 8, TOOL_SCHOOL);
         } else if (x % 8 == 0) {
-            set2x2(x, 7, TOOL_PARK);
+            set2x2(x, 8, TOOL_PARK);
         } else if (x % 4 == 0) {
-            set2x2(x, 7, TOOL_RES_APARTMENTS, 2, 2); // Urban Condominiums
+            set2x2(x, 8, TOOL_RES_APARTMENTS, 2, 2); // Urban Condominiums
         } else {
-            set2x2(x, 7, TOOL_RES_APARTMENTS, 2, 1); // Brick Brownstones
+            set2x2(x, 8, TOOL_RES_APARTMENTS, 2, 1); // Brick Brownstones
         }
     }
 
-    // 4. District 3 (y = 13): Highrise Luxury Towers & Sky-Plazas
+    // 4. District 3 (y = 14): Highrise Luxury Towers & Sky-Plazas (Touches Avenue at y = 16)
     for (int x = 4; x <= 58; x += 2) {
-        if (x == 14 || x == 26 || x == 38 || x == 50) continue;
         if (x % 12 == 4) {
-            set2x2(x, 13, TOOL_PARK);
+            set2x2(x, 14, TOOL_PARK);
         } else if (x % 8 == 0) {
-            set2x2(x, 13, TOOL_CHURCH);
+            set2x2(x, 14, TOOL_CHURCH);
         } else if (x % 4 == 0) {
-            set2x2(x, 13, TOOL_RES_TOWER, 3, 2); // Twin Highrise Plaza
+            set2x2(x, 14, TOOL_RES_TOWER, 3, 2); // Twin Highrise Plaza
         } else {
-            set2x2(x, 13, TOOL_RES_TOWER, 3, 1); // Highrise Luxury Tower
+            set2x2(x, 14, TOOL_RES_TOWER, 3, 1); // Highrise Luxury Tower
         }
     }
 
-    // 5. District 4 (y = 19): Downtown Corporate Banking Highrises & Financial Towers
+    // 5. District 4 (y = 20): Downtown Corporate Banking Highrises & Financial Towers (Touches Avenue at y = 22)
     for (int x = 4; x <= 58; x += 2) {
-        if (x == 14 || x == 26 || x == 38 || x == 50) continue;
         if (x % 12 == 0) {
-            set2x2(x, 19, TOOL_PARK);
+            set2x2(x, 20, TOOL_PARK);
         } else if (x % 8 == 0) {
-            set2x2(x, 19, TOOL_SCHOOL);
+            set2x2(x, 20, TOOL_SCHOOL);
         } else if (x % 4 == 0) {
-            set2x2(x, 19, TOOL_COM_TOWER, 3, 2); // International Financial Center
+            set2x2(x, 20, TOOL_COM_TOWER, 3, 2); // International Financial Center
         } else {
-            set2x2(x, 19, TOOL_COM_TOWER, 3, 1); // Corporate Banking Highrise
+            set2x2(x, 20, TOOL_COM_TOWER, 3, 1); // Corporate Banking Highrise
         }
     }
 
-    // 6. District 5 (y = 25): Shopping Plazas, Diners, Groceries, & Retail Arcades
+    // 6. District 5 (y = 26): Shopping Plazas, Diners, Groceries, & Retail Arcades (Touches Avenue at y = 28)
     for (int x = 4; x <= 58; x += 2) {
-        if (x == 14 || x == 26 || x == 38 || x == 50) continue;
         if (x % 12 == 6) {
-            set2x2(x, 25, TOOL_PARK);
+            set2x2(x, 26, TOOL_PARK);
         } else if (x % 8 == 4) {
-            set2x2(x, 25, TOOL_COM_GROCERY, 1, 2); // Local Diner & Mini Mart
+            set2x2(x, 26, TOOL_COM_GROCERY, 1, 2); // Local Diner & Mini Mart
         } else if (x % 8 == 0) {
-            set2x2(x, 25, TOOL_COM_GROCERY, 1, 1); // Corner Grocery & Bakery
+            set2x2(x, 26, TOOL_COM_GROCERY, 1, 1); // Corner Grocery & Bakery
         } else if (x % 4 == 0) {
-            set2x2(x, 25, TOOL_COM_PLAZA, 2, 2);   // Department Store Arcade
+            set2x2(x, 26, TOOL_COM_PLAZA, 2, 2);   // Department Store Arcade
         } else {
-            set2x2(x, 25, TOOL_COM_PLAZA, 2, 1);   // Shopping Plaza Arcade
+            set2x2(x, 26, TOOL_COM_PLAZA, 2, 1);   // Shopping Plaza Arcade
         }
     }
 
-    // 7. District 6 (y = 31): West Farmlands & East Industrial Manufacturing
+    // 7. District 6 (y = 32): West Farmlands & East Industrial Manufacturing (Touches Avenue at y = 34)
     for (int x = 4; x <= 58; x += 2) {
-        if (x == 14 || x == 26 || x == 38 || x == 50) continue;
         if (x < 26) {
             // West Agriculture
             if (x % 4 == 0) {
-                set2x2(x, 31, TOOL_FARM_WINDMILL, 1, 2); // Windmill Homestead
+                set2x2(x, 32, TOOL_FARM_WINDMILL, 1, 2); // Windmill Homestead
             } else {
-                set2x2(x, 31, TOOL_FARM_BARN, 1, 1);     // Barn & Wheat Silo
+                set2x2(x, 32, TOOL_FARM_BARN, 1, 1);     // Barn & Wheat Silo
             }
         } else {
             // East Industry (T1 Workshops & T2 Manufacturing)
             if (x % 8 == 0) {
-                set2x2(x, 31, TOOL_IND_FACTORY, 2, 2);   // Heavy Machine Assembly
+                set2x2(x, 32, TOOL_IND_FACTORY, 2, 2);   // Heavy Machine Assembly
             } else if (x % 6 == 0) {
-                set2x2(x, 31, TOOL_IND_FACTORY, 2, 1);   // Manufacturing Plant
+                set2x2(x, 32, TOOL_IND_FACTORY, 2, 1);   // Manufacturing Plant
             } else if (x % 4 == 0) {
-                set2x2(x, 31, TOOL_IND_WORKSHOP, 1, 2);  // Warehouse Depot
+                set2x2(x, 32, TOOL_IND_WORKSHOP, 1, 2);  // Warehouse Depot
             } else {
-                set2x2(x, 31, TOOL_IND_WORKSHOP, 1, 1);  // Scrap Workshop & Foundry
+                set2x2(x, 32, TOOL_IND_WORKSHOP, 1, 1);  // Scrap Workshop & Foundry
             }
         }
     }
 
-    // 8. District 7 (y = 37): West Windmill Homesteads & East Robotics / Clean-Fab Hubs
+    // 8. District 7 (y = 38): West Windmill Homesteads & East Robotics / Clean-Fab Hubs (Touches Avenue at y = 40)
     for (int x = 4; x <= 58; x += 2) {
-        if (x == 14 || x == 26 || x == 38 || x == 50) continue;
         if (x < 26) {
             if (x % 4 == 0) {
-                set2x2(x, 37, TOOL_FARM_WINDMILL, 1, 2);
+                set2x2(x, 38, TOOL_FARM_WINDMILL, 1, 2);
             } else {
-                set2x2(x, 37, TOOL_FARM_BARN, 1, 1);
+                set2x2(x, 38, TOOL_FARM_BARN, 1, 1);
             }
         } else {
             if (x % 4 == 0) {
-                set2x2(x, 37, TOOL_IND_TECH, 3, 2);      // Robotics Automation Facility
+                set2x2(x, 38, TOOL_IND_TECH, 3, 2);      // Robotics Automation Facility
             } else {
-                set2x2(x, 37, TOOL_IND_TECH, 3, 1);      // Microchip Clean-Fab Hub
+                set2x2(x, 38, TOOL_IND_TECH, 3, 1);      // Microchip Clean-Fab Hub
             }
         }
     }

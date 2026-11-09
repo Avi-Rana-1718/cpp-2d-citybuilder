@@ -182,11 +182,11 @@ public:
                     c.pauseTimer = 0.4f + static_cast<float>(std::rand() % 10) / 10.f;
                     c.isWalking = false;
 
-                    // Pick next destination tile
+                    // Pick next destination tile (Axis 1 East/West, Axis 2 SW/NE edge-sharing, and vertical fallback)
                     std::vector<sf::Vector2i> nextTiles;
-                    const int dx[4] = {1, -1, 0, 0};
-                    const int dy[4] = {0, 0, 1, -1};
-                    for (int k = 0; k < 4; k++) {
+                    const int dx[6] = {1, -1, -1,  1,  0,  0};
+                    const int dy[6] = {0,  0,  1, -1,  1, -1};
+                    for (int k = 0; k < 6; k++) {
                         int nx = c.currentTileX + dx[k];
                         int ny = c.currentTileY + dy[k];
                         if (isWalkable(nx, ny)) {
