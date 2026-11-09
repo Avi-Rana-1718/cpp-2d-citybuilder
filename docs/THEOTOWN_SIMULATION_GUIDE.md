@@ -151,6 +151,22 @@ $$\text{Zone Happiness} = (0.25 \times \text{Jobs}) + (0.20 \times \text{Edu}) +
 
 ---
 
+## 5a. Time, Speed & Seasons
+
+- **Calendar**: 1 game day = 4 seconds at 1x. 30-day months, 12 months a year. The game starts on **1 March, Year 1**.
+- **Speed**: Pause / 1x / 2x / 4x via the top-bar buttons, `P` (pause / resume) and `[` / `]` (slower / faster). Pausing freezes income, growth and simulation.
+- **Daily taxes**: every active building pays `income x sector tax %` once per game day. The top bar shows the last day's total (`+$X/day`), and each building's card shows its own daily yield.
+- **Seasons** (3 months each):
+
+| Season | Months | Look | Farm yield |
+|---|---|---|---|
+| Spring | Mar-May | Fresh green | x1.0 |
+| Summer | Jun-Aug | Full colour | x1.3 |
+| Autumn | Sep-Nov | Orange and gold forests, drier grass | x1.5 (harvest) |
+| Winter | Dec-Feb | Snow on land, lots and roads; frosted trees; dark water | x0.3 |
+
+Visuals blend into the next season over the last ~18 days of each season.
+
 ## 5b. Procedural World & Natural Resources
 
 Each game generates a new 64×64 world from a seed (launch with `--seed N` to replay one; the seed is shown in the top bar).
@@ -178,7 +194,7 @@ Use the **Map View** panel at the top left (or press `O`) to switch between Norm
 
 ---
 
-## 7. Automated Test Suite (45 Tests)
+## 7. Automated Test Suite (52 Tests)
 
 All systems are covered by automated unit and integration tests in `tests/test_main.cpp`:
 

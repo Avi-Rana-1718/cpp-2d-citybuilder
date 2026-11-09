@@ -14,7 +14,7 @@ cmake -S . -B build -G "MinGW Makefiles"
 # Build all targets (executable and tests)
 cmake --build build
 
-# Run unit and integration tests (all 45 tests must pass)
+# Run unit and integration tests (all 52 tests must pass)
 ctest --test-dir build --output-on-failure
 # Or directly run the test binary:
 .\build\citybuilder_tests.exe
@@ -40,9 +40,11 @@ The binary `citybuilder.exe`, test runner `citybuilder_tests.exe`, required SFML
 | **Right Click** | Cancel active drag or return to `INSPECT` mode |
 | **`W / A / S / D`** or **Arrow Keys** | Pan camera smoothly across the world (`Shift` for fast pan) |
 | **`Q / E`** or **`+ / -`** | Smooth camera zoom in (`Q` / `+`) and zoom out (`E` / `-`) between $0.4\times$ and $3.2\times$ |
-| **Hotkeys** | `Esc` (Inspect), `R` (Residential), `C` (Commercial), `I` (Industrial), `F` (Farms), `1` (School), `2` (Church), `3` (Park), `Space` (Dirt Road), `H` (Harbour), `W` (Water), `X` (Demolish), `O` (cycle map view: Normal / Fertility / Groundwater / Deposits) |
+| **Hotkeys** | `Esc` (Inspect), `R` (Residential), `C` (Commercial), `I` (Industrial), `F` (Farms), `1` (School), `2` (Church), `3` (Park), `Space` (Dirt Road), `H` (Harbour), `W` (Water), `X` (Demolish), `O` (cycle map view: Normal / Fertility / Groundwater / Deposits), `P` (pause / resume), `[` / `]` (slower / faster) |
+| **Speed buttons** | Top bar `|| 1x 2x 4x` next to the date |
 | **Map View panel** | Top-left HUD buttons switch the map view to show soil fertility, groundwater or coal/iron/stone deposits |
 | **`--seed N`** | Launch argument: generate a reproducible world (`citybuilder.exe --seed 42`); omitted = random seed shown in the top bar |
+| **`--month N`** | Start mid-way through month N (1-12), e.g. `--month 1` for winter, `--month 10` for autumn |
 | **`--bench N`** | Launch argument: run N seconds after a 1 s warm-up, print `BENCH avg_ms / fps / worst_ms`, then exit. Combine with `--zoom Z` (0.4-3.2), `--shot file.png` (save a screenshot at the end) and `--bench-city` (fill the map with a ~650-building grid city first). Benchmarks run **headless**: an off-screen window that never takes focus or shows on the taskbar (`src/HeadlessWindow.cpp`); pass `--show` to watch, or `--headless` without `--bench` |
 | **Focus** | Keyboard and mouse are ignored while the game window is not focused (`sf::Keyboard` / `sf::Mouse` read global device state) |
 
@@ -135,7 +137,10 @@ GameEngine
 - **Civics (`SchoolZone`, `ChurchZone`, `ParkZone`)** — 2×2 civic services with radial coverage: Elementary School ($R=5$), Gothic Cathedral ($R=4$), and Nature Park ($R=4$).
 - **HarbourZone (`game/entities/HarbourZone.hpp`)** — 2×2 maritime trade port placed on shorelines adjacent to water.
 - **Road access (`checkValid`)** — Every 2×2 building is active only when a `DirtRoad` sits on one of the 8 tiles sharing a full edge with its footprint (`BORDER_2X2`, `hasAdjacentRoad()` in `game/world/WorldData.hpp`; harbours also need `hasAdjacentWater()`). `checkValid()` is a virtual on `Zone`, called when the building is placed and from `Play_Scene::refreshBuildingsAround()` after a road, water or bulldoze change — never per frame.
-- **Simulation tick** — Map entities have no per-frame logic and `update()` is not called on them. Once per second `Play_Scene::runSimulationTick()` calls `Zone::simTick()` on every structure (tax collection, tier changes, `SubZone` active-state sync) and then `HappinessSystem::updateSimulation()`.
+- **HUD (`game/ui/`)** — `UiKit.hpp` holds the palette and drawing helpers (rounded panels, cached text, icons, bars, thumbnails, `fitText`). `Toolbar.hpp` is the build menu: a left sidebar of category icons, a flyout of build cards (sprite thumbnail, price from `toolCost()`, hotkey), and a bottom-left "Placing" pill. `Play_Scene` draws the top status bar (money/day, population + R/C/I demand, happiness, date/season, speed), the Map View icon toggles, the inspect card and the error toast. Icons are 16×16 PNGs in `assets/sprites/ui/` from `tools/gen_ui_icons.py`, registered as `ui_<name>`. Screenshot flags: `--menu N`, `--inspect X Y`, `--view N`.
+- **Game clock (`game/simulation/GameClock.hpp`)** — Global `gameClock`. 1 day = 4 s at 1x; speeds Pause / 1x / 2x / 4x; 30-day months, 12 months, start 1 Mar Year 1. Seasons: Spring Mar-May, Summer Jun-Aug, Autumn Sep-Nov, Winter Dec-Feb. `Play_Scene::advanceTime()` advances it each frame; every new day runs `runNewDay()` (daily taxes via `Zone::dailyTax()` with fractional carry, population growth). Globals `yr`/`mon`/`day` mirror the clock.
+- **Seasons** — `GroundRenderer` applies a `SeasonLook` (grass/water tint, autumn/snowy tree sprites, winter snow layer over land, lots and roads), blending into the next season over its last 20%. Farms earn ×1.0 spring, ×1.3 summer, ×1.5 autumn, ×0.3 winter.
+- **Simulation tick** — Map entities have no per-frame logic and `update()` is not called on them. Once per game second (so 4×/s at 4x, never while paused) `Play_Scene::runSimulationTick()` calls `Zone::simTick()` on every structure (tier changes, `SubZone` active-state sync) and then `HappinessSystem::updateSimulation()`.
 - **DirtRoad (`game/entities/roads/DirtRoad.hpp`)** — 1×1 autotiling road network across 4-way and diagonal intersections.
 
 ---
@@ -159,7 +164,8 @@ GameEngine
 | `worldSeed` | `uint32_t` | Seed of the current world (0 = random at init) |
 | `worldSpawnX`, `worldSpawnY` | `int` | Centre of the guaranteed buildable start area; camera starts here |
 | `tileX`, `tileY` | `int` | Grid coordinates of the selected tile |
-| `gameTime` | `sf::Clock` | Game timer driving the calendar |
+| `gameClock` | `GameClock` | Calendar, seasons and speed (`game/simulation/GameClock.hpp`) |
+| `yr`, `mon`, `day` | `int` | Current date, mirrored from `gameClock` each frame |
 | `calculatedFPS` | `int` | Measured frames per second |
 
 ---
@@ -229,7 +235,7 @@ cpp-2d-citybuilder/
 ├── README.md                   # Repository overview and quick start
 ├── docs/                       # In-depth system documentation
 │   └── THEOTOWN_SIMULATION_GUIDE.md # Comprehensive guide for gameplay, simulation, & civics
-├── tests/                      # Automated test suite (45 tests)
+├── tests/                      # Automated test suite (52 tests)
 │   ├── test_framework.hpp      # Lightweight assertion and runner framework
 │   └── test_main.cpp           # Unit & integration test cases
 ├── assets/                     # Game assets (sprites and fonts)
