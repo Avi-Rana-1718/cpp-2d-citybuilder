@@ -10,7 +10,6 @@ public:
 
     int buildCost;
     int zoneIncome;
-    bool taxPaid;
     int happinessIndex[9] = {};
 
     bool isHovered;
@@ -34,7 +33,6 @@ public:
         population = 0;
         buildCost = 0;
         zoneIncome = 0;
-        taxPaid = false;
         isHovered = false;
         tooltip = NULL;
         buildingSprite = NULL;
@@ -46,7 +44,9 @@ public:
     virtual void update(float deltaTime) override;
     virtual void drawGround(sf::RenderWindow& window);
     virtual void drawBuilding(sf::RenderWindow& window);
-    virtual void payTax();
+    // Tax this building pays per game day (0 when inactive). Summed and
+    // credited once per day by Play_Scene::collectDailyTaxes().
+    virtual float dailyTax() const { return 0.f; }
 
     // Recomputes isActive (road access). Called when the building is placed
     // and when a road or water tile on its border changes, not every frame.
@@ -103,5 +103,4 @@ inline void Zone::drawBuilding(sf::RenderWindow& window) {
     }
 }
 
-inline void Zone::payTax() {
-}
+

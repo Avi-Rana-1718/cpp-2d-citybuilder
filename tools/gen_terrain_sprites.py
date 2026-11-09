@@ -47,7 +47,37 @@ def make_forest_path():
     return img
 
 
-def draw_tree(img, cx, base, height, radius, shade):
+def summer_canopy(shade):
+    def paint(x, y, t, lit):
+        g = shade + (22 if lit else 0) + ((x * 3 + y * 5) % 7) - 3
+        return (28 + (8 if lit else 0), g, 36)
+    return paint
+
+
+def autumn_canopy(base_rgb):
+    # Deciduous autumn colours, brighter on the lit north-west side
+    def paint(x, y, t, lit):
+        n = ((x * 3 + y * 5) % 7) - 3
+        boost = 28 if lit else 0
+        r, g, b = base_rgb
+        return (min(255, r + boost + n * 3), min(255, g + boost // 2 + n * 2), min(255, b + n))
+    return paint
+
+
+def winter_canopy(shade):
+    # Dark conifer green with snow settled on the top and the lit side
+    def paint(x, y, t, lit):
+        if t < 0.22 or (lit and (x + y) % 3 != 0):
+            v = ((x * 5 + y * 3) % 5) * 3
+            return (226 + v, 232 + v, 242 + v // 2)
+        g = shade - 15 + ((x * 3 + y * 5) % 7) - 3
+        return (24, g, 38)
+    return paint
+
+
+def draw_tree(img, cx, base, height, radius, shade, paint=None):
+    if paint is None:
+        paint = summer_canopy(shade)
     # Trunk
     for y in range(base - 3, base + 1):
         for x in (cx, cx + 1):
@@ -61,20 +91,39 @@ def draw_tree(img, cx, base, height, radius, shade):
             if not (0 <= x < 32 and 0 <= y < img.size[1]):
                 continue
             lit = x <= cx
-            g = shade + (22 if lit else 0) + ((x * 3 + y * 5) % 7) - 3
-            img.putpixel((x, y), (28 + (8 if lit else 0), g, 36, 255))
+            img.putpixel((x, y), (*paint(x, y, t, lit), 255))
 
 
-def make_forest():
+# Tree layout shared by every season: (cx, base offset, height, radius, shade)
+TREES = [(10, 10, 13, 5, 105), (21, 10, 15, 5, 98), (15, 6, 14, 6, 112), (6, 5, 10, 4, 100), (25, 5, 11, 4, 108)]
+AUTUMN_COLOURS = [(205, 105, 30), (185, 55, 30), (215, 160, 35), None, (200, 85, 25)]  # None = evergreen
+
+
+def make_forest_season(season):
     h = 32
     img = Image.new("RGBA", (32, h), (0, 0, 0, 0))
     # Back-to-front so nearer trees overlap farther ones
-    draw_tree(img, 10, h - 10, 13, 5, 105)
-    draw_tree(img, 21, h - 10, 15, 5, 98)
-    draw_tree(img, 15, h - 6, 14, 6, 112)
-    draw_tree(img, 6, h - 5, 10, 4, 100)
-    draw_tree(img, 25, h - 5, 11, 4, 108)
+    for k, (cx, off, height, radius, shade) in enumerate(TREES):
+        if season == "autumn" and AUTUMN_COLOURS[k] is not None:
+            paint = autumn_canopy(AUTUMN_COLOURS[k])
+        elif season == "winter":
+            paint = winter_canopy(shade)
+        else:
+            paint = summer_canopy(shade)
+        draw_tree(img, cx, h - off, height, radius, shade, paint)
     return img
+
+
+def make_forest():
+    return make_forest_season("summer")
+
+
+def make_forest_autumn():
+    return make_forest_season("autumn")
+
+
+def make_forest_winter():
+    return make_forest_season("winter")
 
 
 def make_rock():
@@ -110,6 +159,8 @@ def build_all():
         "sand.png": make_sand,
         "forest_path.png": make_forest_path,
         "forest.png": make_forest,
+        "forest_autumn.png": make_forest_autumn,
+        "forest_winter.png": make_forest_winter,
         "rock.png": make_rock,
     }
     for filename, fn in makers.items():

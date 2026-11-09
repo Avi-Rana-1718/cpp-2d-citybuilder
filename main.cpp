@@ -24,6 +24,17 @@ int main(int argc, char** argv)
             benchSeconds = static_cast<float>(std::atof(argv[i + 1]));
         } else if (std::string(argv[i]) == "--shot") {
             benchShot = argv[i + 1];
+        } else if (std::string(argv[i]) == "--month") {
+            // Start mid-way through month N (1-12), e.g. --month 1 for winter
+            int m = std::atoi(argv[i + 1]);
+            if (m >= 1 && m <= 12) gameClock.setDate(1, m, 15);
+        } else if (std::string(argv[i]) == "--menu") {
+            startMenu = std::atoi(argv[i + 1]);
+        } else if (std::string(argv[i]) == "--view") {
+            startView = std::atoi(argv[i + 1]);
+        } else if (std::string(argv[i]) == "--inspect" && i + 2 < argc) {
+            startInspectX = std::atoi(argv[i + 1]);
+            startInspectY = std::atoi(argv[i + 2]);
         } else if (std::string(argv[i]) == "--zoom") {
             startZoom = static_cast<float>(std::atof(argv[i + 1]));
         }

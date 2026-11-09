@@ -24,7 +24,9 @@
 #include "../world/WorldGen.hpp"
 #include "../world/GroundRenderer.hpp"
 #include "../simulation/HappinessSystem.hpp"
+#include "../simulation/GameClock.hpp"
 #include "../ui/Window.hpp"
+#include "../ui/UiKit.hpp"
 #include "../ui/Toolbar.hpp"
 
 enum population {
@@ -64,12 +66,18 @@ class Play_Scene : public Scene {
     sf::Vector2i dragCurrent{-1, -1};
 
     // TheoTown Top Bar & Info Card State
-    int gameSpeed = 1; // 0: Paused, 1: Normal, 2: Fast
-    int lastDailyIncome = 45;
+    int lastDailyIncome = 0;   // tax credited on the most recent game day
+    float taxCarry = 0.f;      // fractional dollars carried to the next day
+
+    // Edge-triggered time hotkeys
+    bool wasPauseKey = false;
+    bool wasSlowerKey = false;
+    bool wasFasterKey = false;
 
     // TheoTown Placement Validation & Notification
     mutable std::string lastPlacementError = "";
     float placementErrorTimer = 0.f;
+    sf::FloatRect inspectCardRect; // last drawn inspect card (empty when hidden)
 
     // World overlay: 0 None, 1 Fertility, 2 Groundwater, 3 Deposits
     int overlayMode = 0;
@@ -99,6 +107,16 @@ public:
     int buildBenchCity();
     void runSimulationTick();
 
+    // ---- Time ----
+    // Advances game time by real seconds (scaled by speed): new days pay
+    // taxes and grow population, simulation ticks run per game second.
+    void advanceTime(float realSeconds);
+    void runNewDay();
+    int collectDailyTaxes();
+    int getLastDailyIncome() const { return lastDailyIncome; }
+    sf::FloatRect speedButtonBounds(int speedIndex) const;
+    bool handleSpeedClick(const sf::Vector2f& point);
+
 private:
     void handleCameraMovement(float deltaTime);
     void handleToolHotkeys();
@@ -108,6 +126,9 @@ private:
     void renderWorld(float deltaTime);
     void renderOverlay(float viewL, float viewR, float viewT, float viewB);
     void renderViewPanel(const sf::Font& font, const sf::Vector2f& mouse);
+    void renderTopBar(const sf::Vector2f& mouse);
+    void renderInspectCard();
+    void renderToast();
     void renderDragPreview();
     void renderHUD(float deltaTime);
 
@@ -169,6 +190,7 @@ void Play_Scene::init() {
     generateWorld(worldSeed);
     materializeWorld(); // no structures yet: the whole map is natural ground
     ground.markDirty();
+    ground.setSeasonLook(seasonLookAt(gameClock.getSeason(), gameClock.seasonProgress()));
     std::cout << "\nWorld generated with seed: " << worldSeed
               << " (spawn " << worldSpawnX << ", " << worldSpawnY << ")\n";
     if (benchCity) {
@@ -179,6 +201,11 @@ void Play_Scene::init() {
 
     // Initialize TheoTown bottom dock
     toolbar.init(static_cast<float>(WINDOW_W), static_cast<float>(WINDOW_H));
+
+    // Screenshot helpers (see --menu / --inspect / --view)
+    if (startMenu >= 1 && startMenu <= 5) toolbar.openFlyout(static_cast<ToolbarCategory>(startMenu));
+    if (inWorldBounds(startInspectX, startInspectY)) { tileX = startInspectX; tileY = startInspectY; }
+    setOverlayMode(startView);
 
     // Center camera on the guaranteed spawn area
     currentZoom = std::max(0.4f, std::min(3.2f, startZoom));
@@ -209,12 +236,15 @@ void Play_Scene::update(float deltaTime) {
 
     // Check if mouse is interacting with UI elements
     bool overViewPanel = viewPanelBounds().contains(mousePixelF);
-    bool mouseOverUI = !focused || toolbar.contains(mousePixelF) || overViewPanel || (mousePixelF.y <= 50.f);
+    bool mouseOverUI = !focused || toolbar.contains(mousePixelF) || overViewPanel || (mousePixelF.y <= 50.f) ||
+                       inspectCardRect.contains(mousePixelF);
 
     bool isLeftPressed = focused && sf::Mouse::isButtonPressed(sf::Mouse::Left);
     if (isLeftPressed && !wasLeftPressed && mouseOverUI) {
         if (overViewPanel) {
             handleViewPanelClick(mousePixelF);
+        } else if (mousePixelF.y <= 50.f) {
+            handleSpeedClick(mousePixelF);
         } else {
             toolbar.handleClick(mousePixelF);
         }
@@ -225,24 +255,73 @@ void Play_Scene::update(float deltaTime) {
         handleGestures(isHoveringTile, mouseOverUI);
     }
 
-    refreshUI();
-
     // 2. Render Passes
     _window.clear(sf::Color(15, 20, 25));
     renderWorld(deltaTime);
     renderHUD(deltaTime);
     _window.display();
 
-    // 3. Economy & Simulation Tick
-    simAccumulator += deltaTime;
-    if (simAccumulator >= 1.0f) {
-        runSimulationTick();
-        simAccumulator = 0.f;
+    // 3. Game time: days, economy and simulation (scaled by speed, frozen when paused)
+    advanceTime(deltaTime);
+}
+
+void Play_Scene::advanceTime(float realSeconds) {
+    int newDays = gameClock.advance(realSeconds);
+    for (int d = 0; d < newDays; d++) {
+        runNewDay();
     }
 
-    if (std::rand() % 1000 == 7 && static_cast<int>(gameTime.getElapsedTime().asSeconds()) % 7 == 0) {
-        populateCity();
+    // One simulation tick per game second; at 4x that is 4 per real second.
+    // Cap catch-up so a long stall cannot trigger a burst of ticks.
+    simAccumulator += gameClock.scaledDelta(realSeconds);
+    int ticks = 0;
+    while (simAccumulator >= 1.f && ticks < 4) {
+        runSimulationTick();
+        simAccumulator -= 1.f;
+        ticks++;
     }
+    if (simAccumulator >= 1.f) simAccumulator = 0.f;
+
+    ground.setSeasonLook(seasonLookAt(gameClock.getSeason(), gameClock.seasonProgress()));
+    refreshUI();
+}
+
+void Play_Scene::runNewDay() {
+    collectDailyTaxes();
+    populateCity();
+}
+
+// Sums every building's daily tax and credits whole dollars, carrying the
+// fraction forward so small per-building amounts are never lost.
+int Play_Scene::collectDailyTaxes() {
+    float total = taxCarry;
+    for (int i = 0; i < tileMapW; i++) {
+        for (int j = 0; j < tileMapH; j++) {
+            if (entities[i][j] == NULL) continue;
+            Zone* z = dynamic_cast<Zone*>(entities[i][j]);
+            if (z != NULL && !z->isSubTile) total += z->dailyTax();
+        }
+    }
+    int whole = static_cast<int>(std::floor(total));
+    taxCarry = total - static_cast<float>(whole);
+    money += whole;
+    lastDailyIncome = whole;
+    return whole;
+}
+
+// Pause / 1x / 2x / 4x buttons, right side of the top bar
+sf::FloatRect Play_Scene::speedButtonBounds(int speedIndex) const {
+    return sf::FloatRect(946.f + static_cast<float>(speedIndex) * 38.f, 10.f, 34.f, 28.f);
+}
+
+bool Play_Scene::handleSpeedClick(const sf::Vector2f& point) {
+    for (int i = 0; i < GameClock::SPEED_COUNT; i++) {
+        if (speedButtonBounds(i).contains(point)) {
+            gameClock.setSpeedIndex(i);
+            return true;
+        }
+    }
+    return false;
 }
 
 void Play_Scene::handleCameraMovement(float deltaTime) {
@@ -325,6 +404,17 @@ void Play_Scene::handleToolHotkeys() {
     if (sf::Keyboard::isKeyPressed(sf::Keyboard::X)) {
         toolbar.setActiveTool(TOOL_BULLDOZE);
     }
+    // Time: P pause/resume, [ slower, ] faster (edge-triggered)
+    bool pauseKey = sf::Keyboard::isKeyPressed(sf::Keyboard::P);
+    bool slowerKey = sf::Keyboard::isKeyPressed(sf::Keyboard::LBracket);
+    bool fasterKey = sf::Keyboard::isKeyPressed(sf::Keyboard::RBracket);
+    if (pauseKey && !wasPauseKey) gameClock.togglePause();
+    if (slowerKey && !wasSlowerKey) gameClock.slower();
+    if (fasterKey && !wasFasterKey) gameClock.faster();
+    wasPauseKey = pauseKey;
+    wasSlowerKey = slowerKey;
+    wasFasterKey = fasterKey;
+
     // O cycles the map view (edge-triggered)
     bool overlayKey = sf::Keyboard::isKeyPressed(sf::Keyboard::O);
     if (overlayKey && !wasOverlayKeyPressed) {
@@ -493,27 +583,7 @@ std::vector<sf::Vector2i> Play_Scene::computeDragTiles() const {
 }
 
 int Play_Scene::getToolCost(BuildTool tool) const {
-    switch (tool) {
-        case TOOL_RES_COTTAGES:   return 100;
-        case TOOL_RES_APARTMENTS: return 250;
-        case TOOL_RES_TOWER:      return 600;
-        case TOOL_COM_GROCERY:    return 120;
-        case TOOL_COM_PLAZA:      return 280;
-        case TOOL_COM_TOWER:      return 750;
-        case TOOL_IND_WORKSHOP:   return 150;
-        case TOOL_IND_FACTORY:    return 350;
-        case TOOL_IND_TECH:       return 800;
-        case TOOL_FARM_BARN:      return 70;
-        case TOOL_FARM_WINDMILL:  return 90;
-        case TOOL_ROAD:           return 10;
-        case TOOL_HARBOUR:        return 250;
-        case TOOL_WATER:          return 20;
-        case TOOL_SCHOOL:         return 200;
-        case TOOL_CHURCH:         return 180;
-        case TOOL_PARK:           return 80;
-        case TOOL_BULLDOZE:       return 5;
-        default: return 0;
-    }
+    return toolCost(tool);
 }
 
 int Play_Scene::getBulldozeCost(int x, int y) const {
@@ -534,12 +604,12 @@ std::string Play_Scene::getOverlayName() const {
 
 // Map View panel: fixed screen-space buttons under the top bar (left side)
 sf::FloatRect Play_Scene::viewPanelBounds() const {
-    return sf::FloatRect(12.f, 60.f, 180.f, 196.f);
+    return sf::FloatRect(static_cast<float>(WINDOW_W) - 212.f, 58.f, 200.f, 84.f);
 }
 
 sf::FloatRect Play_Scene::viewButtonBounds(int mode) const {
     sf::FloatRect panel = viewPanelBounds();
-    return sf::FloatRect(panel.left + 10.f, panel.top + 30.f + static_cast<float>(mode) * 30.f, panel.width - 20.f, 26.f);
+    return sf::FloatRect(panel.left + 8.f + static_cast<float>(mode) * 48.f, panel.top + 8.f, 40.f, 40.f);
 }
 
 bool Play_Scene::handleViewPanelClick(const sf::Vector2f& point) {
@@ -982,6 +1052,10 @@ void Play_Scene::renderWorld(float deltaTime) {
 
                 Zone* z = dynamic_cast<Zone*>(entities[i][j]);
                 if (z != NULL) {
+                    // Building lots follow the season like natural grass; roads keep their colour
+                    if (z->sprite != NULL && z->getName() != "DirtRoad") {
+                        z->sprite->setColor(ground.getSeasonLook().grass);
+                    }
                     z->drawGround(_window);
                 } else {
                     entities[i][j]->draw();
@@ -989,6 +1063,9 @@ void Play_Scene::renderWorld(float deltaTime) {
             }
         }
     }
+
+    // PASS 1c: Winter snow over land, lots and roads
+    ground.drawSnow(_window);
 
     // PASS 1.5: Resource / soil overlay
     if (overlayMode != 0) {
@@ -1081,88 +1158,43 @@ void Play_Scene::renderOverlay(float viewL, float viewR, float viewT, float view
 }
 
 void Play_Scene::renderViewPanel(const sf::Font& font, const sf::Vector2f& mouse) {
-    sf::FloatRect panel = viewPanelBounds();
-    sf::RectangleShape bgRect(sf::Vector2f(panel.width, panel.height));
-    bgRect.setPosition(panel.left, panel.top);
-    bgRect.setFillColor(sf::Color(16, 22, 30, 230));
-    bgRect.setOutlineColor(sf::Color(45, 60, 80, 220));
-    bgRect.setOutlineThickness(1.5f);
-    _window.draw(bgRect);
+    (void)font;
+    using namespace uikit;
+    sf::FloatRect pb = viewPanelBounds();
+    panel(_window, pb, 12.f);
 
-    sf::Text label;
-    label.setFont(font);
-    label.setCharacterSize(12);
-    label.setStyle(sf::Text::Bold);
-    label.setFillColor(sf::Color(180, 195, 210));
-    label.setString("MAP VIEW [O]");
-    label.setPosition(panel.left + 10.f, panel.top + 8.f);
-    _window.draw(label);
-
+    const char* icons[4] = {"view_normal", "view_fertility", "view_water", "view_deposits"};
     const char* names[4] = {"Normal", "Fertility", "Groundwater", "Deposits"};
-    const sf::Color accents[4] = {
-        sf::Color(149, 165, 166), sf::Color(120, 200, 70), sf::Color(52, 152, 219), sf::Color(220, 120, 50)
-    };
+    const sf::Color tints[4] = {sf::Color(200, 210, 220), sf::Color(120, 215, 90),
+                                sf::Color(80, 170, 240), sf::Color(240, 150, 70)};
 
-    label.setStyle(sf::Text::Regular);
+    int hovered = -1;
     for (int m = 0; m < 4; m++) {
         sf::FloatRect b = viewButtonBounds(m);
         bool active = (overlayMode == m);
-        bool hovered = b.contains(mouse);
-
-        sf::RectangleShape btn(sf::Vector2f(b.width, b.height));
-        btn.setPosition(b.left, b.top);
-        if (active) {
-            btn.setFillColor(sf::Color(accents[m].r / 4, accents[m].g / 4, accents[m].b / 4, 255));
-            btn.setOutlineColor(accents[m]);
-            btn.setOutlineThickness(2.f);
-        } else {
-            btn.setFillColor(hovered ? sf::Color(38, 48, 62, 240) : sf::Color(25, 31, 40, 215));
-            btn.setOutlineColor(sf::Color(50, 60, 75, 180));
-            btn.setOutlineThickness(1.f);
-        }
-        _window.draw(btn);
-
-        sf::RectangleShape swatch(sf::Vector2f(4.f, b.height - 8.f));
-        swatch.setPosition(b.left + 5.f, b.top + 4.f);
-        swatch.setFillColor(accents[m]);
-        _window.draw(swatch);
-
-        label.setCharacterSize(12);
-        label.setFillColor(active ? sf::Color::White : sf::Color(190, 200, 210));
-        label.setString(names[m]);
-        label.setPosition(b.left + 16.f, b.top + 5.f);
-        _window.draw(label);
+        if (b.contains(mouse)) hovered = m;
+        sf::Color fill = active ? withAlpha(tints[m], 60) : (hovered == m ? PANEL_HOVER : PANEL_RAISED);
+        roundedRect(_window, b, 10.f, fill, active ? tints[m] : BORDER, active ? 2.f : 1.f);
+        icon(_window, icons[m], b.left + 4.f, b.top + 4.f, 32.f, tints[m]);
     }
 
-    // Legend for the active view
-    float ly = viewButtonBounds(3).top + 34.f;
-    label.setCharacterSize(10);
-    label.setFillColor(sf::Color(150, 165, 180));
-    auto drawKey = [&](float x, const sf::Color& c, const std::string& text) {
-        sf::RectangleShape key(sf::Vector2f(10.f, 10.f));
-        key.setPosition(x, ly + 2.f);
-        key.setFillColor(c);
-        key.setOutlineColor(sf::Color(90, 100, 115));
-        key.setOutlineThickness(1.f);
-        _window.draw(key);
-        label.setString(text);
-        label.setPosition(x + 14.f, ly);
-        _window.draw(label);
+    // Caption + legend for the active view (hover shows the hovered view's name)
+    float ly = pb.top + 56.f;
+    if (hovered >= 0 && hovered != overlayMode) {
+        textMid(_window, std::string("View: ") + names[hovered] + "  [O]", pb.left + 10.f, ly, 20.f, 11, TEXT_DIM);
+        return;
+    }
+    auto key = [&](float x, const sf::Color& c, const std::string& label) {
+        roundedRect(_window, sf::FloatRect(x, ly + 5.f, 10.f, 10.f), 3.f, c, BORDER, 1.f);
+        return 14.f + text(_window, label, x + 14.f, ly + 5.f, 10, TEXT_DIM) + 10.f;
     };
-    if (overlayMode == 0) {
-        label.setString("Terrain only");
-        label.setPosition(panel.left + 10.f, ly);
-        _window.draw(label);
-    } else if (overlayMode == 1) {
-        drawKey(panel.left + 10.f, sf::Color(210, 60, 50), "Barren");
-        drawKey(panel.left + 92.f, sf::Color(40, 210, 50), "Rich");
-    } else if (overlayMode == 2) {
-        drawKey(panel.left + 10.f, sf::Color(40, 130, 230, 80), "Low");
-        drawKey(panel.left + 92.f, sf::Color(40, 130, 230, 230), "High");
-    } else {
-        drawKey(panel.left + 10.f, sf::Color(25, 25, 30), "Coal");
-        drawKey(panel.left + 64.f, sf::Color(200, 85, 30), "Iron");
-        drawKey(panel.left + 116.f, sf::Color(215, 215, 220), "Stone");
+    float x = pb.left + 10.f;
+    switch (overlayMode) {
+        case 1: x += key(x, sf::Color(210, 60, 50), "Barren"); key(x, sf::Color(40, 210, 50), "Rich soil"); break;
+        case 2: x += key(x, sf::Color(40, 130, 230, 90), "Dry"); key(x, sf::Color(40, 130, 230, 240), "Wet ground"); break;
+        case 3: x += key(x, sf::Color(30, 30, 36), "Coal"); x += key(x, sf::Color(200, 85, 30), "Iron");
+                key(x, sf::Color(215, 215, 220), "Stone"); break;
+        default: textMid(_window, "Map view  [O]", pb.left + 10.f, ly, 20.f, 11, TEXT_DIM); break;
     }
 }
 
@@ -1312,282 +1344,282 @@ void Play_Scene::renderDragPreview() {
     }
 }
 
-void Play_Scene::renderHUD(float deltaTime) {
-    _window.setView(_window.getDefaultView());
+// Daily tax with one decimal, e.g. "2.5"
+static std::string dailyTaxText(const Zone* z) {
+    char buf[24];
+    std::snprintf(buf, sizeof(buf), "%.1f", z ? z->dailyTax() : 0.f);
+    return buf;
+}
 
+void Play_Scene::renderHUD(float deltaTime) {
+    (void)deltaTime;
+    _window.setView(_window.getDefaultView());
     const sf::Font& font = m_fonts["../assets/Hack.ttf"];
 
-    // -------------------------------------------------------------
-    // 0. Placement Error Banner
-    // -------------------------------------------------------------
-    if (placementErrorTimer > 0.f && !lastPlacementError.empty()) {
-        float bannerW = 460.f;
-        float bannerH = 34.f;
-        float bannerX = (static_cast<float>(WINDOW_W) - bannerW) / 2.f;
-        float bannerY = 56.f;
-
-        sf::RectangleShape banner(sf::Vector2f(bannerW, bannerH));
-        banner.setPosition(bannerX, bannerY);
-        banner.setFillColor(sf::Color(38, 14, 18, 235));
-        banner.setOutlineColor(sf::Color(231, 76, 60));
-        banner.setOutlineThickness(1.5f);
-        _window.draw(banner);
-
-        sf::Text alertText;
-        alertText.setFont(font);
-        alertText.setCharacterSize(13);
-        alertText.setFillColor(sf::Color(255, 190, 190));
-        alertText.setString("[!] Cannot Build: " + lastPlacementError);
-        alertText.setPosition(bannerX + 16.f, bannerY + 8.f);
-        _window.draw(alertText);
-    }
-
-    // -------------------------------------------------------------
-    // 1. TheoTown Top Header Bar (Fixed at top screen space)
-    // -------------------------------------------------------------
-    sf::RectangleShape topBar(sf::Vector2f(static_cast<float>(WINDOW_W), 48.f));
-    topBar.setPosition(0.f, 0.f);
-    topBar.setFillColor(sf::Color(14, 18, 25, 240));
-    topBar.setOutlineColor(sf::Color(45, 60, 80, 220));
-    topBar.setOutlineThickness(1.5f);
-    _window.draw(topBar);
-
-    // City Name Pill
-    sf::Text titleText;
-    titleText.setFont(font);
-    titleText.setCharacterSize(15);
-    titleText.setFillColor(sf::Color(52, 152, 219));
-    titleText.setString("CHIME CITY");
-    titleText.setPosition(20.f, 6.f);
-    _window.draw(titleText);
-
-    sf::Text approvalText;
-    approvalText.setFont(font);
-    approvalText.setCharacterSize(11);
-    approvalText.setFillColor(sf::Color(180, 195, 210));
-    approvalText.setString("Mayor: 88%");
-    approvalText.setPosition(20.f, 26.f);
-    _window.draw(approvalText);
-
-    // Date & Speed Controls
-    sf::Text dateText;
-    dateText.setFont(font);
-    dateText.setCharacterSize(13);
-    dateText.setFillColor(sf::Color(230, 235, 240));
-    dateText.setString("Yr " + std::to_string(yr) + " * M " + std::to_string(mon) + " * D " + std::to_string(day));
-    dateText.setPosition(180.f, 15.f);
-    _window.draw(dateText);
-
-    // Treasury Badge
-    sf::Text moneyText;
-    moneyText.setFont(font);
-    moneyText.setCharacterSize(17);
-    moneyText.setFillColor(sf::Color(46, 204, 113));
-    moneyText.setString("$" + std::to_string(money));
-    moneyText.setPosition(390.f, 6.f);
-    _window.draw(moneyText);
-
-    sf::Text cashflowText;
-    cashflowText.setFont(font);
-    cashflowText.setCharacterSize(11);
-    cashflowText.setFillColor(sf::Color(135, 211, 124));
-    cashflowText.setString("+$45/day");
-    cashflowText.setPosition(390.f, 28.f);
-    _window.draw(cashflowText);
-
-    // Population & RCI Demand Meter
-    sf::Text popText;
-    popText.setFont(font);
-    popText.setCharacterSize(13);
-    popText.setFillColor(sf::Color(240, 240, 245));
-    popText.setString("Pop: " + std::to_string(townPopulation[0] + townPopulation[1] + townPopulation[2]));
-    popText.setPosition(540.f, 15.f);
-    _window.draw(popText);
-
-    // Mini RCI Demand Bars
-    float rciX = 660.f;
-    float rciY = 16.f;
-    // R (Green)
-    sf::RectangleShape barR(sf::Vector2f(28.f, 16.f));
-    barR.setPosition(rciX, rciY);
-    barR.setFillColor(sf::Color(46, 204, 113));
-    _window.draw(barR);
-    // C (Blue)
-    sf::RectangleShape barC(sf::Vector2f(22.f, 16.f));
-    barC.setPosition(rciX + 32.f, rciY);
-    barC.setFillColor(sf::Color(52, 152, 219));
-    _window.draw(barC);
-    // I (Orange)
-    sf::RectangleShape barI(sf::Vector2f(18.f, 16.f));
-    barI.setPosition(rciX + 58.f, rciY);
-    barI.setFillColor(sf::Color(230, 126, 34));
-    _window.draw(barI);
-
-    // Happiness Score Pill
-    int happy = happinessSystem.cityHappiness;
-    sf::Color happyCol = (happy >= 75) ? sf::Color(46, 204, 113) : ((happy >= 50) ? sf::Color(241, 196, 15) : sf::Color(231, 76, 60));
-    std::string happyIcon = (happy >= 75) ? ":D " : ((happy >= 50) ? ":) " : ":( ");
-
-    sf::RectangleShape happyBadge(sf::Vector2f(135.f, 30.f));
-    happyBadge.setPosition(770.f, 9.f);
-    happyBadge.setFillColor(sf::Color(25, 32, 45));
-    happyBadge.setOutlineColor(happyCol);
-    happyBadge.setOutlineThickness(1.5f);
-    _window.draw(happyBadge);
-
-    sf::Text happyText;
-    happyText.setFont(font);
-    happyText.setCharacterSize(13);
-    happyText.setFillColor(happyCol);
-    happyText.setString(happyIcon + std::to_string(happy) + "% HAPPY");
-    happyText.setPosition(780.f, 15.f);
-    _window.draw(happyText);
-
-    // World overlay & seed
-    sf::Text overlayText;
-    overlayText.setFont(font);
-    overlayText.setCharacterSize(12);
-    overlayText.setFillColor(overlayMode == 0 ? sf::Color(140, 155, 170) : sf::Color(26, 188, 156));
-    overlayText.setString("View [O]: " + getOverlayName());
-    overlayText.setPosition(930.f, 7.f);
-    _window.draw(overlayText);
-
-    sf::Text seedText;
-    seedText.setFont(font);
-    seedText.setCharacterSize(11);
-    seedText.setFillColor(sf::Color(120, 135, 150));
-    seedText.setString("Seed: " + std::to_string(worldSeed));
-    seedText.setPosition(930.f, 26.f);
-    _window.draw(seedText);
-
-    // FPS badge
-    sf::Text fpsText;
-    fpsText.setFont(font);
-    fpsText.setCharacterSize(13);
-    fpsText.setFillColor(sf::Color(140, 155, 170));
-    fpsText.setString(std::to_string(calculatedFPS) + " FPS");
-    fpsText.setPosition(static_cast<float>(WINDOW_W) - 85.f, 15.f);
-    _window.draw(fpsText);
-
-    // -------------------------------------------------------------
-    // 2. TheoTown Building Inspection & Query Card (Inspect Mode)
-    // -------------------------------------------------------------
-    if (toolbar.getActiveTool() == TOOL_NONE && tileX >= 0 && tileX < tileMapW && tileY >= 0 && tileY < tileMapH) {
-        {
-            bool natural = (entities[tileX][tileY] == NULL);
-            Zone* z = natural ? NULL : dynamic_cast<Zone*>(entities[tileX][tileY]);
-            Zone* mz = z;
-            if (z != NULL && z->isSubTile && z->rootX >= 0 && z->rootY >= 0) {
-                mz = dynamic_cast<Zone*>(entities[z->rootX][z->rootY]);
-            }
-
-            if (mz != NULL || natural) {
-                float cardW = 360.f;
-                float cardH = 240.f;
-                float cardX = static_cast<float>(WINDOW_W) - cardW - 20.f;
-                float cardY = 60.f;
-
-                sf::RectangleShape card(sf::Vector2f(cardW, cardH));
-                card.setPosition(cardX, cardY);
-                card.setFillColor(sf::Color(16, 22, 30, 235));
-                card.setOutlineColor(sf::Color(52, 152, 219, 200));
-                card.setOutlineThickness(2.f);
-                _window.draw(card);
-
-                std::string headerTitle;
-                std::string subTitle;
-                std::string tierDesc;
-
-                if (natural) {
-                    headerTitle = isClearGroundName(tileKind(tileX, tileY)) ? "OPEN LAND" : "NATURAL FEATURE";
-                    subTitle = "Natural Terrain";
-                } else {
-                    headerTitle = mz->getName();
-                    subTitle = mz->isMultiTile ? "2x2 Building Complex" : "1x1 Structure";
-                    tierDesc = "Tier " + std::to_string(mz->tier);
-                }
-
-                if (natural) {
-                    // no building details
-                } else if (mz->getName() == "ResidentalZone") {
-                    headerTitle = "RESIDENTIAL COMPLEX";
-                    tierDesc += " * " + dynamic_cast<ResidentalZone*>(mz)->getVariantName();
-                } else if (mz->getName() == "CommericalZone") {
-                    headerTitle = "COMMERCIAL DISTRICT";
-                    tierDesc += " * " + dynamic_cast<CommericalZone*>(mz)->getVariantName();
-                } else if (mz->getName() == "IndustrialZone") {
-                    headerTitle = "INDUSTRIAL FACILITY";
-                    tierDesc += " * " + dynamic_cast<IndustrialZone*>(mz)->getVariantName();
-                } else if (mz->getName() == "FarmZone") {
-                    headerTitle = "AGRICULTURAL FARM";
-                    FarmZone* fz = dynamic_cast<FarmZone*>(mz);
-                    char mulBuf[16];
-                    std::snprintf(mulBuf, sizeof(mulBuf), "%.2f", fz->fertilityMul);
-                    tierDesc = fz->getVariantName() + " * Soil x" + mulBuf;
-                }
-
-                const TileData& land = world[tileX][tileY];
-                std::string landLine = "Land:        " + terrainName(land.terrain) + " | Soil: " + std::to_string(land.fertility) + "%\n";
-                landLine += "Underground: Water " + std::to_string(land.groundwater) + "% | " + depositName(land.deposit);
-                if (land.deposit != Deposit::None) landLine += " (" + std::to_string(land.depositAmount) + "%)";
-
-                sf::Text cardTitle;
-                cardTitle.setFont(font);
-                cardTitle.setCharacterSize(14);
-                cardTitle.setFillColor(sf::Color(52, 152, 219));
-                cardTitle.setString(headerTitle);
-                cardTitle.setPosition(cardX + 16.f, cardY + 12.f);
-                _window.draw(cardTitle);
-
-                sf::Text cardSub;
-                cardSub.setFont(font);
-                cardSub.setCharacterSize(11);
-                cardSub.setFillColor(sf::Color(140, 160, 180));
-                cardSub.setString(subTitle);
-                cardSub.setPosition(cardX + 16.f, cardY + 32.f);
-                _window.draw(cardSub);
-
-                // Divider line
-                sf::RectangleShape div(sf::Vector2f(cardW - 32.f, 1.f));
-                div.setPosition(cardX + 16.f, cardY + 50.f);
-                div.setFillColor(sf::Color(45, 60, 80));
-                _window.draw(div);
-
-                std::string infoBody = natural ? landLine :
-                    "Designation: " + tierDesc + "\n"
-                    "Footprint:   " + (mz->isMultiTile ? "2x2 Tiles" : "1x1 Tile") + "\n"
-                    "Capacity:    " + std::to_string(mz->capacity) + " | Occupants: " + std::to_string(mz->population) + "\n"
-                    "Tax Yield:   $" + std::to_string(mz->zoneIncome) + " / cycle\n"
-                    "Road Status: " + (mz->isActive ? "Connected [Active]" : "No Road Access") + "\n"
-                    "Local Happy: " + std::to_string(mz->overallHappiness) + "%\n"
-                    "Services:    Edu: " + std::to_string(townStats[2]) + "% | Health: " + std::to_string(townStats[4]) + "%\n" +
-                    landLine;
-
-                sf::Text cardBody;
-                cardBody.setFont(font);
-                cardBody.setCharacterSize(11);
-                cardBody.setFillColor(sf::Color(220, 230, 240));
-                cardBody.setString(infoBody);
-                cardBody.setPosition(cardX + 16.f, cardY + 58.f);
-                _window.draw(cardBody);
-            }
-        }
-    }
-
-    // -------------------------------------------------------------
-    // 3. TheoTown Bottom Floating Dock Toolbar
-    // -------------------------------------------------------------
     sf::Vector2i mousePixel = sf::Mouse::getPosition(_window);
-    sf::Vector2f mousePixelF(static_cast<float>(mousePixel.x), static_cast<float>(mousePixel.y));
-    renderViewPanel(font, mousePixelF);
-    toolbar.draw(_window, font, mousePixelF);
+    sf::Vector2f mouse(static_cast<float>(mousePixel.x), static_cast<float>(mousePixel.y));
+
+    renderTopBar(mouse);
+    renderViewPanel(font, mouse);
+    renderInspectCard();
+    toolbar.draw(_window, font, mouse);
+    renderToast();
+
+    // Small diagnostics, bottom-right
+    std::string diag = std::to_string(calculatedFPS) + " FPS  |  Seed " + std::to_string(worldSeed);
+    float dw = uikit::textWidth(diag, 10) + 18.f;
+    sf::FloatRect dr(static_cast<float>(WINDOW_W) - dw - 10.f, static_cast<float>(WINDOW_H) - 30.f, dw, 20.f);
+    uikit::roundedRect(_window, dr, 8.f, uikit::PANEL, uikit::BORDER, 1.f);
+    uikit::textMid(_window, diag, dr.left + 9.f, dr.top, dr.height, 10, uikit::TEXT_DIM);
+}
+
+// Top status bar: city, money, population + demand, happiness, date/season + speed
+void Play_Scene::renderTopBar(const sf::Vector2f& mouse) {
+    using namespace uikit;
+    const float W = static_cast<float>(WINDOW_W);
+
+    sf::RectangleShape bar(sf::Vector2f(W, 48.f));
+    bar.setFillColor(sf::Color(12, 16, 23, 240));
+    _window.draw(bar);
+    sf::RectangleShape line(sf::Vector2f(W, 1.f));
+    line.setPosition(0.f, 48.f);
+    line.setFillColor(BORDER);
+    _window.draw(line);
+
+    auto chip = [&](float x, float w) {
+        sf::FloatRect r(x, 6.f, w, 36.f);
+        roundedRect(_window, r, 10.f, PANEL_RAISED, BORDER, 1.f);
+        return r;
+    };
+
+    // City name
+    text(_window, "Chime City", 16.f, 9.f, 15, ACCENT, true);
+    text(_window, "Year " + std::to_string(gameClock.getYear()), 16.f, 29.f, 10, TEXT_DIM);
+
+    // Treasury
+    sf::FloatRect m = chip(150.f, 200.f);
+    icon(_window, "coin", m.left + 8.f, m.top + 6.f, 24.f);
+    text(_window, formatMoney(money), m.left + 40.f, m.top + 4.f, 15, TEXT, true);
+    sf::Color flow = lastDailyIncome > 0 ? GOOD : TEXT_DIM;
+    text(_window, "+" + formatMoney(lastDailyIncome) + " / day", m.left + 40.f, m.top + 22.f, 10, flow);
+
+    // Population + R/C/I demand
+    sf::FloatRect p = chip(360.f, 170.f);
+    icon(_window, "people", p.left + 8.f, p.top + 6.f, 24.f);
+    int pop = townPopulation[0] + townPopulation[1] + townPopulation[2];
+    text(_window, withCommas(pop), p.left + 40.f, p.top + 4.f, 15, TEXT, true);
+    text(_window, "citizens", p.left + 40.f, p.top + 22.f, 10, TEXT_DIM);
+    const sf::Color rci[3] = {GOOD, ACCENT, sf::Color(235, 140, 50)};
+    for (int i = 0; i < 3; i++) {
+        float frac = std::max(0.08f, std::min(1.f, static_cast<float>(townDemand[i]) / 1000.f));
+        float h = 24.f * frac;
+        float x = p.left + p.width - 40.f + static_cast<float>(i) * 10.f;
+        roundedRect(_window, sf::FloatRect(x, p.top + 6.f, 7.f, 24.f), 2.f, sf::Color(10, 13, 19, 220));
+        roundedRect(_window, sf::FloatRect(x, p.top + 30.f - h, 7.f, h), 2.f, rci[i]);
+    }
+
+    // Happiness
+    int happy = happinessSystem.cityHappiness;
+    sf::Color hc = happy >= 75 ? GOOD : (happy >= 50 ? WARN : BAD);
+    sf::FloatRect h = chip(540.f, 130.f);
+    icon(_window, "smile", h.left + 8.f, h.top + 6.f, 24.f, hc);
+    text(_window, std::to_string(happy) + "%", h.left + 40.f, h.top + 4.f, 15, hc, true);
+    text(_window, "happiness", h.left + 40.f, h.top + 22.f, 10, TEXT_DIM);
+
+    // Date, season and speed controls
+    Season season = gameClock.getSeason();
+    const char* seasonIcons[4] = {"season_spring", "season_summer", "season_autumn", "season_winter"};
+    const sf::Color seasonColors[4] = {sf::Color(120, 220, 110), sf::Color(250, 205, 70),
+                                       sf::Color(235, 140, 60), sf::Color(170, 205, 245)};
+    sf::FloatRect d = chip(680.f, 420.f);
+    icon(_window, seasonIcons[static_cast<int>(season)], d.left + 8.f, d.top + 6.f, 24.f);
+    text(_window, gameClock.dateString(), d.left + 40.f, d.top + 4.f, 14, TEXT, true);
+    std::string sub = GameClock::seasonName(season);
+    if (gameClock.isPaused()) sub += "  -  PAUSED";
+    text(_window, sub, d.left + 40.f, d.top + 22.f, 10, gameClock.isPaused() ? WARN : seasonColors[static_cast<int>(season)], true);
+
+    const char* speedIcons[GameClock::SPEED_COUNT] = {"speed_pause", "speed_1", "speed_2", "speed_4"};
+    for (int i = 0; i < GameClock::SPEED_COUNT; i++) {
+        sf::FloatRect b = speedButtonBounds(i);
+        bool active = gameClock.getSpeedIndex() == i;
+        bool hovered = b.contains(mouse);
+        sf::Color fill = active ? sf::Color(30, 80, 120) : (hovered ? PANEL_HOVER : sf::Color(18, 23, 32));
+        roundedRect(_window, b, 7.f, fill, active ? ACCENT : BORDER, active ? 2.f : 1.f);
+        icon(_window, speedIcons[i], b.left + 5.f, b.top + 2.f, 24.f, active ? sf::Color::White : TEXT_DIM);
+    }
+}
+
+// Placement error toast, bottom-centre, fading out
+void Play_Scene::renderToast() {
+    using namespace uikit;
+    if (placementErrorTimer <= 0.f || lastPlacementError.empty()) return;
+    float alpha = std::min(1.f, placementErrorTimer / 0.5f); // fade over the last half second
+    std::string msg = "Can't build here: " + lastPlacementError;
+    float w = textWidth(msg, 13, true) + 64.f;
+    sf::FloatRect r((static_cast<float>(WINDOW_W) - w) / 2.f, static_cast<float>(WINDOW_H) - 84.f, w, 40.f);
+    sf::Uint8 a = static_cast<sf::Uint8>(235.f * alpha);
+    roundedRect(_window, sf::FloatRect(r.left + 2.f, r.top + 3.f, r.width, r.height), 12.f, withAlpha(SHADOW, static_cast<sf::Uint8>(90.f * alpha)));
+    roundedRect(_window, r, 12.f, sf::Color(48, 20, 22, a), withAlpha(BAD, a), 1.5f);
+    icon(_window, "warning", r.left + 12.f, r.top + 8.f, 24.f, sf::Color(255, 255, 255, a));
+    textMid(_window, msg, r.left + 44.f, r.top, r.height, 13, withAlpha(sf::Color(255, 215, 210), a), true);
+}
+
+// Inspect card (Inspect mode): building or natural tile under the cursor
+void Play_Scene::renderInspectCard() {
+    using namespace uikit;
+    inspectCardRect = sf::FloatRect();
+    if (toolbar.getActiveTool() != TOOL_NONE) return;
+    if (tileX < 0 || tileX >= tileMapW || tileY < 0 || tileY >= tileMapH) return;
+
+    bool natural = (entities[tileX][tileY] == NULL);
+    Zone* z = natural ? NULL : dynamic_cast<Zone*>(entities[tileX][tileY]);
+    Zone* mz = z;
+    if (z != NULL && z->isSubTile && z->rootX >= 0 && z->rootY >= 0) {
+        mz = dynamic_cast<Zone*>(entities[z->rootX][z->rootY]);
+    }
+    if (!natural && mz == NULL) return;
+
+    const std::string kind = natural ? tileKind(tileX, tileY) : mz->getName();
+    const bool isRoad = (kind == "DirtRoad");
+    const bool isBuilding = !natural && !isRoad;
+    const bool isZone = kind == "ResidentalZone" || kind == "CommericalZone" || kind == "IndustrialZone";
+
+    // Title, subtitle, accent and thumbnail
+    std::string title, subtitle;
+    sf::Color accent = ACCENT;
+    if (natural) {
+        title = terrainName(world[tileX][tileY].terrain);
+        subtitle = isClearGroundName(kind) ? "Open land - buildable" : "Bulldoze to clear";
+        accent = sf::Color(120, 200, 110);
+    } else if (isRoad) {
+        title = "Dirt Road"; subtitle = "Connects buildings on its edges"; accent = sf::Color(190, 196, 204);
+    } else if (kind == "ResidentalZone") {
+        title = "Residential"; subtitle = dynamic_cast<ResidentalZone*>(mz)->getVariantName(); accent = GOOD;
+    } else if (kind == "CommericalZone") {
+        title = "Commercial"; subtitle = dynamic_cast<CommericalZone*>(mz)->getVariantName(); accent = ACCENT;
+    } else if (kind == "IndustrialZone") {
+        title = "Industrial"; subtitle = dynamic_cast<IndustrialZone*>(mz)->getVariantName(); accent = sf::Color(235, 140, 50);
+    } else if (kind == "FarmZone") {
+        title = "Farm"; subtitle = dynamic_cast<FarmZone*>(mz)->getVariantName(); accent = sf::Color(150, 205, 90);
+    } else if (kind == "SchoolZone") {
+        title = "Elementary School"; subtitle = "Education - radius 5"; accent = BAD;
+    } else if (kind == "ChurchZone") {
+        title = "Community Church"; subtitle = "Faith - radius 4"; accent = sf::Color(170, 120, 220);
+    } else if (kind == "ParkZone") {
+        title = "Nature Park"; subtitle = "Health & fun - radius 4"; accent = GOOD;
+    } else if (kind == "HarbourZone") {
+        title = "Trade Harbour"; subtitle = "Sea trade port"; accent = ACCENT;
+    } else {
+        title = kind;
+    }
+
+    // Height: header + building rows + land section
+    const float W = 320.f;
+    float hgt = 82.f;                       // header
+    if (isBuilding) hgt += 34.f;            // status + tax row
+    if (isZone) hgt += 2 * 30.f;            // occupancy + happiness bars
+    if (kind == "FarmZone") hgt += 22.f;    // soil / season line
+    hgt += 112.f;                           // land section
+    sf::FloatRect card(static_cast<float>(WINDOW_W) - W - 12.f, 152.f, W, hgt);
+    inspectCardRect = card;
+    panel(_window, card, 12.f);
+    roundedRect(_window, sf::FloatRect(card.left, card.top, card.width, 4.f), 2.f, accent);
+
+    // Header: thumbnail well + title
+    sf::FloatRect well(card.left + 12.f, card.top + 14.f, 64.f, 56.f);
+    roundedRect(_window, well, 9.f, sf::Color(10, 13, 19, 230));
+    sf::FloatRect inner(well.left + 4.f, well.top + 4.f, well.width - 8.f, well.height - 8.f);
+    if (isBuilding && mz->buildingSprite != NULL) {
+        thumbnailTex(_window, mz->buildingSprite->getTexture(), inner);
+    } else if (isRoad) {
+        thumbnail(_window, "road", inner);
+    } else if (natural) {
+        Terrain t = world[tileX][tileY].terrain;
+        const char* key = t == Terrain::Water ? "water" : t == Terrain::Sand ? "sand" : t == Terrain::Forest ? "forest"
+                        : t == Terrain::Rock ? "rock" : t == Terrain::ForestPath ? "forest_path" : "grass";
+        thumbnail(_window, key, inner);
+    }
+
+    float tx = well.left + well.width + 12.f;
+    const float maxTitleW = card.left + card.width - 14.f - tx;
+    text(_window, fitText(title, 15, maxTitleW, true), tx, card.top + 18.f, 15, TEXT, true);
+    text(_window, fitText(subtitle, 11, maxTitleW), tx, card.top + 38.f, 11, TEXT_DIM);
+    if (isZone) {
+        for (int s = 0; s < 3; s++) {
+            icon(_window, "star", tx + static_cast<float>(s) * 18.f, card.top + 54.f, 16.f,
+                 s < mz->tier ? sf::Color::White : sf::Color(255, 255, 255, 45));
+        }
+    } else if (isBuilding || isRoad) {
+        text(_window, isRoad ? "1x1 tile" : "2x2 building", tx, card.top + 56.f, 10, TEXT_DIM);
+    }
+
+    float y = card.top + 82.f;
+    const float lx = card.left + 14.f, rw = card.width - 28.f;
+
+    auto barRow = [&](const std::string& label, const std::string& value, float frac, const sf::Color& c) {
+        text(_window, label, lx, y, 11, TEXT_DIM);
+        textRight(_window, value, lx + rw, y, 11, TEXT, true);
+        bar(_window, sf::FloatRect(lx, y + 16.f, rw, 7.f), frac, c);
+        y += 30.f;
+    };
+
+    if (isBuilding) {
+        bool connected = mz->isActive;
+        sf::Color sc = connected ? GOOD : BAD;
+        std::string status = connected ? "Road connected" : "No road access";
+        if (kind == "ParkZone") status = "Always open";
+        float sw = textWidth(status, 11, true) + 20.f;
+        roundedRect(_window, sf::FloatRect(lx, y, sw, 22.f), 11.f, withAlpha(sc, 45), sc, 1.f);
+        textMid(_window, status, lx + 10.f, y, 22.f, 11, sc, true);
+        std::string tax = "$" + dailyTaxText(mz) + " / day";
+        textMid(_window, tax, lx + rw - textWidth(tax, 12, true), y, 22.f, 12, mz->dailyTax() > 0.f ? GOOD : TEXT_DIM, true);
+        y += 34.f;
+    }
+    if (isZone) {
+        float occ = mz->capacity > 0 ? static_cast<float>(mz->population) / static_cast<float>(mz->capacity) : 0.f;
+        barRow("Occupancy", std::to_string(mz->population) + " / " + std::to_string(mz->capacity), occ, ACCENT);
+        int hap = mz->overallHappiness;
+        barRow("Happiness", std::to_string(hap) + "%", static_cast<float>(hap) / 100.f,
+               hap >= 75 ? GOOD : (hap >= 50 ? WARN : BAD));
+    }
+    if (kind == "FarmZone") {
+        FarmZone* fz = dynamic_cast<FarmZone*>(mz);
+        char buf[64];
+        std::snprintf(buf, sizeof(buf), "Soil x%.2f  -  %s x%.1f", fz->fertilityMul,
+                      GameClock::seasonName(gameClock.getSeason()).c_str(), seasonalFarmMultiplier(gameClock.getSeason()));
+        text(_window, buf, lx, y, 11, sf::Color(170, 220, 120), true);
+        y += 22.f;
+    }
+
+    // Land section
+    sf::RectangleShape div(sf::Vector2f(rw, 1.f));
+    div.setPosition(lx, y);
+    div.setFillColor(BORDER);
+    _window.draw(div);
+    y += 8.f;
+    const TileData& land = world[tileX][tileY];
+    text(_window, "LAND", lx, y, 10, TEXT_DIM, true);
+    textRight(_window, terrainName(land.terrain), lx + rw, y, 10, TEXT_DIM);
+    y += 18.f;
+    barRow("Soil fertility", std::to_string(land.fertility) + "%", static_cast<float>(land.fertility) / 100.f,
+           sf::Color(120, 200, 80));
+    barRow("Groundwater", std::to_string(land.groundwater) + "%", static_cast<float>(land.groundwater) / 100.f,
+           sf::Color(70, 150, 230));
+    if (land.deposit == Deposit::None) {
+        text(_window, "Deposit", lx, y, 11, TEXT_DIM);
+        textRight(_window, "None", lx + rw, y, 11, TEXT_DIM, true);
+    } else {
+        sf::Color dc = land.deposit == Deposit::Coal ? sf::Color(150, 150, 160)
+                     : land.deposit == Deposit::Iron ? sf::Color(220, 110, 50) : sf::Color(220, 220, 225);
+        barRow(depositName(land.deposit), std::to_string(land.depositAmount) + "%",
+               static_cast<float>(land.depositAmount) / 100.f, dc);
+    }
 }
 
 void Play_Scene::refreshUI() {
-    int totalSec = static_cast<int>(gameTime.getElapsedTime().asSeconds());
-    yr = totalSec / 1800;
-    mon = (totalSec - (yr * 1800)) / 155;
-    day = (totalSec - (yr * 1800) - (mon * 155)) / 5;
+    yr = gameClock.getYear();
+    mon = gameClock.getMonth();
+    day = gameClock.getDay();
 }
 
 void Play_Scene::populateCity() {

@@ -2,6 +2,7 @@
 #include "./_Zone.hpp"
 #include "../../src/Entity.hpp"
 #include "../world/WorldData.hpp"
+#include "../simulation/GameClock.hpp"
 
 class FarmZone : public Zone {
 public:
@@ -11,12 +12,11 @@ public:
     ~FarmZone();
 
     void update(float deltaTime) override;
-    void simTick() override;
     void drawGround(sf::RenderWindow& window) override;
     void drawBuilding(sf::RenderWindow& window) override;
 
     void checkValid() override;
-    void payTax() override;
+    float dailyTax() const override;
     void updateBuildingTexture();
     std::string getVariantName() const;
 };
@@ -42,7 +42,6 @@ inline FarmZone::FarmZone(int posX, int posY, int initialVariant) {
     zoneIncome = (variant == 1) ? 35 : 45;
     fertilityMul = fertilityMultiplier(footprintFertility(posX, posY));
     zoneIncome = static_cast<int>(static_cast<float>(zoneIncome) * fertilityMul + 0.5f);
-    taxPaid = false;
 
     this->posX = posX;
     this->posY = posY;
@@ -99,11 +98,6 @@ inline void FarmZone::update(float deltaTime) {
     setDeltaTime(deltaTime);
 }
 
-// Once per simulation tick: taxes and tier progression
-inline void FarmZone::simTick() {
-    payTax();
-}
-
 inline void FarmZone::drawGround(sf::RenderWindow& window) {
     if (sprite != NULL) {
         sprite->setPosition(position->x, position->y);
@@ -124,13 +118,10 @@ inline void FarmZone::checkValid() {
     isActive = hasAdjacentRoad(posX, posY);
 }
 
-inline void FarmZone::payTax() {
-    if (isActive && !taxPaid && day == 1) {
-        taxPaid = true;
-        money += static_cast<int>(zoneIncome * (townTaxes[2] / 100.0));
-    } else if (day == 2) {
-        taxPaid = false;
-    }
+// Daily tax: income x sector tax rate x season (harvest peaks in autumn)
+inline float FarmZone::dailyTax() const {
+    if (!isActive) return 0.f;
+    return static_cast<float>(zoneIncome) * (static_cast<float>(townTaxes[2]) / 100.f) * seasonalFarmMultiplier(gameClock.getSeason());
 }
 
 inline FarmZone::~FarmZone() {

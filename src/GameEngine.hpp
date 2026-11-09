@@ -59,6 +59,18 @@ GameEngine::GameEngine() {
     // Natural terrain
     assets.addTexture("sand", "sand.png");
     assets.addTexture("forest", "forest.png");
+    assets.addTexture("forest_autumn", "forest_autumn.png");
+    assets.addTexture("forest_winter", "forest_winter.png");
+
+    // HUD icons (tools/gen_ui_icons.py), registered as "ui_<name>"
+    const char* uiIcons[] = {
+        "inspect", "residential", "commercial", "industrial", "civic", "infrastructure", "bulldoze",
+        "coin", "people", "smile", "season_spring", "season_summer", "season_autumn", "season_winter",
+        "view_normal", "view_fertility", "view_water", "view_deposits", "warning", "star",
+        "speed_pause", "speed_1", "speed_2", "speed_4"};
+    for (const char* name : uiIcons) {
+        assets.addTexture(std::string("ui_") + name, std::string("ui/") + name + ".png");
+    }
     assets.addTexture("rock", "rock.png");
     assets.addTexture("forest_path", "forest_path.png");
 

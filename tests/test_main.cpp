@@ -21,6 +21,7 @@
 #include "../game/world/WorldData.hpp"
 #include "../game/world/WorldGen.hpp"
 #include "../game/world/GroundRenderer.hpp"
+#include "../game/simulation/GameClock.hpp"
 
 // RAII helper to silence stdout logs from entity constructors/destructors during tests
 struct ScopedCoutSilence {
@@ -34,6 +35,7 @@ struct ScopedCoutSilence {
 static void clearTestGrid() {
     ScopedCoutSilence silence;
     resetWorldData();
+    gameClock = GameClock(); // 1 Mar, Year 1, 1x
     for (int i = 0; i < tileMapW; i++) {
         for (int j = 0; j < tileMapH; j++) {
             delete entities[i][j];
@@ -108,13 +110,70 @@ TEST_CASE(Test_Toolbar_LayoutAndDefaults) {
     Toolbar tb;
     tb.init(1500.f, 900.f);
 
-    // Initial tool default
-    ASSERT_EQ(static_cast<int>(tb.getActiveTool()), static_cast<int>(TOOL_RESIDENTIAL));
+    // Starts in Inspect mode with the flyout closed
+    ASSERT_EQ(static_cast<int>(tb.getActiveTool()), static_cast<int>(TOOL_NONE));
+    ASSERT_FALSE(tb.isFlyoutOpen());
 
-    // Dock bounds must be centered at bottom of 1500x900
-    ASSERT_TRUE(tb.contains(sf::Vector2f(750.f, 850.f)));
-    ASSERT_FALSE(tb.contains(sf::Vector2f(100.f, 100.f))); // Top-left is outside
-    ASSERT_FALSE(tb.contains(sf::Vector2f(750.f, 500.f))); // Screen center is outside
+    // Sidebar hugs the left edge below the top bar
+    sf::FloatRect side = tb.sidebarBounds();
+    ASSERT_TRUE(side.left < 20.f);
+    ASSERT_TRUE(side.top > 48.f);
+    ASSERT_TRUE(tb.contains(sf::Vector2f(side.left + side.width / 2.f, side.top + 20.f)));
+    ASSERT_FALSE(tb.contains(sf::Vector2f(750.f, 450.f)));  // map centre is free
+    ASSERT_FALSE(tb.contains(sf::Vector2f(750.f, 850.f)));  // bottom of the screen is free
+
+    // Every category icon sits inside the sidebar without overlapping the next
+    ToolbarCategory cats[6] = {ToolbarCategory::INSPECT, ToolbarCategory::RESIDENTIAL, ToolbarCategory::COMMERCIAL,
+                               ToolbarCategory::INDUSTRIAL, ToolbarCategory::CIVICS, ToolbarCategory::INFRASTRUCTURE};
+    for (int i = 0; i < 6; i++) {
+        sf::FloatRect b = tb.tabBounds(cats[i]);
+        ASSERT_TRUE(b.width > 0.f);
+        ASSERT_TRUE(side.contains(b.left, b.top) && side.contains(b.left + b.width, b.top + b.height));
+        if (i > 0) ASSERT_FALSE(b.intersects(tb.tabBounds(cats[i - 1])));
+    }
+}
+
+TEST_CASE(Test_Toolbar_FlyoutClickFlow) {
+    Toolbar tb;
+    tb.init(1500.f, 900.f);
+    auto centre = [](const sf::FloatRect& r) { return sf::Vector2f(r.left + r.width / 2.f, r.top + r.height / 2.f); };
+
+    // Category icon opens its flyout; the flyout region becomes UI
+    ASSERT_TRUE(tb.handleClick(centre(tb.tabBounds(ToolbarCategory::CIVICS))));
+    ASSERT_TRUE(tb.isFlyoutOpen());
+    ASSERT_TRUE(tb.contains(centre(tb.flyoutBounds())));
+
+    // Clicking a card selects the tool and closes the flyout
+    ASSERT_TRUE(tb.handleClick(centre(tb.cardBoundsFor(TOOL_PARK))));
+    ASSERT_EQ(static_cast<int>(tb.getActiveTool()), static_cast<int>(TOOL_PARK));
+    ASSERT_FALSE(tb.isFlyoutOpen());
+
+    // The active-tool pill shows while placing; its X cancels
+    ASSERT_TRUE(tb.contains(centre(tb.pillBounds())));
+    ASSERT_TRUE(tb.handleClick(centre(tb.pillCloseBounds())));
+    ASSERT_EQ(static_cast<int>(tb.getActiveTool()), static_cast<int>(TOOL_NONE));
+    ASSERT_FALSE(tb.contains(centre(tb.pillBounds())));
+
+    // Second click on the same category closes its flyout
+    tb.handleClick(centre(tb.tabBounds(ToolbarCategory::RESIDENTIAL)));
+    ASSERT_TRUE(tb.isFlyoutOpen());
+    tb.handleClick(centre(tb.tabBounds(ToolbarCategory::RESIDENTIAL)));
+    ASSERT_FALSE(tb.isFlyoutOpen());
+
+    // Inspect icon clears the tool
+    tb.setActiveTool(TOOL_ROAD);
+    tb.handleClick(centre(tb.tabBounds(ToolbarCategory::INSPECT)));
+    ASSERT_EQ(static_cast<int>(tb.getActiveTool()), static_cast<int>(TOOL_NONE));
+
+    // Hotkeys select a tool and its category without opening the flyout
+    tb.setActiveTool(TOOL_FARM);
+    ASSERT_TRUE(tb.getActiveCategory() == ToolbarCategory::INDUSTRIAL);
+    ASSERT_FALSE(tb.isFlyoutOpen());
+
+    // Card prices come from the same table the game charges
+    Play_Scene scene;
+    ASSERT_EQ(scene.getToolCost(TOOL_RES_TOWER), toolCost(TOOL_RES_TOWER));
+    ASSERT_EQ(toolCost(TOOL_RES_COTTAGES), 100);
 }
 
 TEST_CASE(Test_Toolbar_ToolSelectionAndToggle) {
@@ -354,27 +413,15 @@ TEST_CASE(Test_SimulationTick_DrivesBuildings) {
     ASSERT_TRUE(sub != NULL && sub->isSubTile);
     ASSERT_FALSE(sub->isActive); // sub-tiles sync on the next tick
 
-    // Per-frame update() no longer collects tax
-    day = 1;
+    // Neither update() nor a simulation tick collects tax (that happens per game day)
     townTaxes[0] = 10;
-    home->taxPaid = false;
     money = 1000;
     home->update(0.016f);
+    scene.runSimulationTick();
     ASSERT_EQ(money, 1000);
 
-    // One simulation tick collects it once and syncs the sub-tiles
-    scene.runSimulationTick();
-    ASSERT_TRUE(money > 1000);
-    ASSERT_TRUE(home->taxPaid);
+    // The tick syncs the sub-tiles with the root
     ASSERT_TRUE(sub->isActive);
-    int afterFirst = money;
-    scene.runSimulationTick();
-    ASSERT_EQ(money, afterFirst);
-
-    // Next day resets the flag, so the following tax day pays again
-    day = 2;
-    scene.runSimulationTick();
-    ASSERT_FALSE(home->taxPaid);
 
     money = 5000;
     clearTestGrid();
@@ -414,55 +461,109 @@ TEST_CASE(Test_Zone_BoundaryEdgeSafety) {
 TEST_CASE(Test_Economy_TaxationCycle) {
     clearTestGrid();
     ScopedCoutSilence silence;
+    Play_Scene scene;
 
     money = 500;
     townTaxes[0] = 10; // 10% residential tax
     townTaxes[1] = 15; // 15% commercial tax
 
-    delete entities[4][4];
     ResidentalZone* rz = new ResidentalZone(4, 4);
     entities[4][4] = rz;
     rz->zoneIncome = 100;
     rz->isActive = false;
 
-    // Day 1: Inactive zone must NOT pay tax
-    day = 1;
-    rz->payTax();
+    // Inactive zones pay nothing
+    ASSERT_NEAR(rz->dailyTax(), 0.f, 0.001f);
+    ASSERT_EQ(scene.collectDailyTaxes(), 0);
     ASSERT_EQ(money, 500);
 
-    // Activate zone
+    // Active residential: 100 x 10% = $10 per day
     rz->isActive = true;
-    rz->taxPaid = false;
+    ASSERT_NEAR(rz->dailyTax(), 10.f, 0.001f);
 
-    // Day 1: Active zone pays tax: 100 * (10 / 100) = 10
-    rz->payTax();
-    ASSERT_EQ(money, 510);
-    ASSERT_TRUE(rz->taxPaid);
-
-    // Calling payTax() again on Day 1 must NOT charge twice
-    rz->payTax();
-    ASSERT_EQ(money, 510);
-
-    // Day 2: taxPaid resets to false
-    day = 2;
-    rz->payTax();
-    ASSERT_FALSE(rz->taxPaid);
-    ASSERT_EQ(money, 510);
-
-    // Commercial zone tax test with townTaxes[1]
-    delete entities[4][5];
-    CommericalZone* cz = new CommericalZone(4, 5);
-    entities[4][5] = cz;
+    // Commercial uses its own rate: 200 x 15% = $30 per day
+    CommericalZone* cz = new CommericalZone(8, 4);
+    entities[8][4] = cz;
     cz->zoneIncome = 200;
     cz->isActive = true;
-    cz->taxPaid = false;
+    ASSERT_NEAR(cz->dailyTax(), 30.f, 0.001f);
 
-    day = 1;
-    cz->payTax();
-    // Expected commercial tax: 200 * (15 / 100) = 30
+    // One day credits both, every day
+    ASSERT_EQ(scene.collectDailyTaxes(), 40);
     ASSERT_EQ(money, 540);
-    ASSERT_TRUE(cz->taxPaid);
+    ASSERT_EQ(scene.getLastDailyIncome(), 40);
+    ASSERT_EQ(scene.collectDailyTaxes(), 40);
+    ASSERT_EQ(money, 580);
 
+    townTaxes[0] = 5;
+    townTaxes[1] = 5;
+    clearTestGrid();
+}
+
+TEST_CASE(Test_Economy_DailyTaxCarriesFractions) {
+    clearTestGrid();
+    ScopedCoutSilence silence;
+    Play_Scene scene;
+    money = 0;
+    townTaxes[0] = 5;
+
+    // 30 x 5% = $1.50 per day: pays 1, then 2 (1.5 + carried 0.5), never loses cents
+    ResidentalZone* rz = new ResidentalZone(4, 4);
+    entities[4][4] = rz;
+    rz->zoneIncome = 30;
+    rz->isActive = true;
+    ASSERT_EQ(scene.collectDailyTaxes(), 1);
+    ASSERT_EQ(scene.collectDailyTaxes(), 2);
+    ASSERT_EQ(scene.collectDailyTaxes(), 1);
+    ASSERT_EQ(scene.collectDailyTaxes(), 2);
+    ASSERT_EQ(money, 6);
+
+    money = 5000;
+    clearTestGrid();
+}
+
+TEST_CASE(Test_Time_AdvanceDrivesDaysAndPause) {
+    clearTestGrid();
+    ScopedCoutSilence silence;
+    Play_Scene scene;
+    money = 0;
+    townTaxes[1] = 10;
+    // A harbour has no tier changes, so its daily tax stays fixed: 120 x 10% = $12
+    HarbourZone* hb = new HarbourZone(4, 4);
+    entities[4][4] = hb;
+    hb->isActive = true;
+    ASSERT_NEAR(hb->dailyTax(), 12.f, 0.001f);
+
+    // 1x: a day every 4 s
+    scene.advanceTime(3.9f);
+    ASSERT_EQ(money, 0);
+    scene.advanceTime(0.2f);
+    ASSERT_EQ(money, 12);
+    ASSERT_EQ(day, 2);
+
+    // Paused: nothing moves
+    gameClock.togglePause();
+    scene.advanceTime(100.f);
+    ASSERT_EQ(money, 12);
+    ASSERT_EQ(day, 2);
+
+    // 4x: 4 s of real time = 4 days
+    gameClock.setSpeedIndex(3);
+    scene.advanceTime(4.f);
+    ASSERT_EQ(money, 60);
+    ASSERT_EQ(day, 6);
+
+    // Speed buttons in the top bar
+    sf::FloatRect b = scene.speedButtonBounds(0);
+    ASSERT_TRUE(scene.handleSpeedClick(sf::Vector2f(b.left + 5.f, b.top + 5.f)));
+    ASSERT_TRUE(gameClock.isPaused());
+    b = scene.speedButtonBounds(2);
+    ASSERT_TRUE(scene.handleSpeedClick(sf::Vector2f(b.left + 5.f, b.top + 5.f)));
+    ASSERT_EQ(gameClock.getSpeedMultiplier(), 2);
+    ASSERT_TRUE(b.top + b.height <= 48.f); // inside the top bar
+
+    townTaxes[1] = 5;
+    money = 5000;
     clearTestGrid();
 }
 
@@ -630,18 +731,12 @@ TEST_CASE(Test_FarmZone_RoadActivationAndTaxes) {
     farm->checkValid();
     ASSERT_TRUE(farm->isActive);
 
-    // Tax collection on day 1
-    money = 100;
-    day = 1;
+    // Active farm pays a daily tax at the industrial rate
     townTaxes[2] = 10;
-    farm->payTax();
-    ASSERT_TRUE(money > 100);
-    ASSERT_TRUE(farm->taxPaid);
-
-    // Tax not collected again on same day
-    int moneyAfter = money;
-    farm->payTax();
-    ASSERT_EQ(money, moneyAfter);
+    ASSERT_TRUE(farm->dailyTax() > 0.f);
+    farm->isActive = false;
+    ASSERT_NEAR(farm->dailyTax(), 0.f, 0.001f);
+    townTaxes[2] = 5;
 
     clearTestGrid();
 }
@@ -1336,6 +1431,141 @@ TEST_CASE(Test_VisibleTileRange_MatchesBruteForce) {
     VisibleTiles off = visibleTileRange(-9000.f, -8000.f, -9000.f, -8000.f, 140.f);
     ASSERT_TRUE(off.iMin > off.iMax);
     ASSERT_FALSE(off.contains(0, 0));
+}
+
+TEST_CASE(Test_GameClock_CalendarAndSeasons) {
+    GameClock c;
+    // Starts 1 Mar, Year 1 (spring), 1x
+    ASSERT_EQ(c.getDay(), 1);
+    ASSERT_EQ(c.getMonth(), 3);
+    ASSERT_EQ(c.getYear(), 1);
+    ASSERT_TRUE(c.getSeason() == Season::Spring);
+    ASSERT_EQ(c.dateString(), "Mar 1, Year 1");
+
+    // 4 s = 1 day
+    ASSERT_EQ(c.advance(3.99f), 0);
+    ASSERT_EQ(c.advance(0.02f), 1);
+    ASSERT_EQ(c.getDay(), 2);
+
+    // A long frame crosses several days at once
+    ASSERT_EQ(c.advance(4.f * 10.f), 10);
+    ASSERT_EQ(c.getDay(), 12);
+
+    // 30 days -> next month; Dec -> Jan rolls the year
+    c.setDate(1, 3, 30);
+    c.advance(4.f);
+    ASSERT_EQ(c.getMonth(), 4);
+    ASSERT_EQ(c.getDay(), 1);
+    c.setDate(1, 12, 30);
+    c.advance(4.f);
+    ASSERT_EQ(c.getMonth(), 1);
+    ASSERT_EQ(c.getYear(), 2);
+
+    // Jan/Feb of year 1 are before the start (March): roll to year 2, never negative
+    c.setDate(1, 1, 15);
+    ASSERT_EQ(c.getMonth(), 1);
+    ASSERT_EQ(c.getDay(), 15);
+    ASSERT_EQ(c.getYear(), 2);
+    ASSERT_TRUE(c.getTotalDays() >= 0);
+
+    // Season of every month
+    const Season expected[12] = {Season::Winter, Season::Winter, Season::Spring, Season::Spring,
+                                 Season::Spring, Season::Summer, Season::Summer, Season::Summer,
+                                 Season::Autumn, Season::Autumn, Season::Autumn, Season::Winter};
+    for (int m = 1; m <= 12; m++) {
+        ASSERT_TRUE(GameClock::seasonOfMonth(m) == expected[m - 1]);
+    }
+
+    // Season progress runs 0 -> 1 across the three months
+    c.setDate(2, 6, 1);
+    ASSERT_NEAR(c.seasonProgress(), 0.f, 0.001f);
+    c.setDate(2, 7, 16);
+    ASSERT_NEAR(c.seasonProgress(), 45.f / 90.f, 0.001f);
+    c.setDate(2, 8, 30);
+    ASSERT_NEAR(c.seasonProgress(), 89.f / 90.f, 0.001f);
+}
+
+TEST_CASE(Test_GameClock_SpeedAndPause) {
+    GameClock c;
+    ASSERT_EQ(c.getSpeedMultiplier(), 1);
+
+    c.faster(); ASSERT_EQ(c.getSpeedMultiplier(), 2);
+    c.faster(); ASSERT_EQ(c.getSpeedMultiplier(), 4);
+    c.faster(); ASSERT_EQ(c.getSpeedMultiplier(), 4); // capped
+
+    // 4x: 1 real second = 1 day
+    ASSERT_EQ(c.advance(1.f), 1);
+    ASSERT_NEAR(c.scaledDelta(0.5f), 2.f, 0.001f);
+
+    // Pause freezes time and resumes at the previous speed
+    c.togglePause();
+    ASSERT_TRUE(c.isPaused());
+    ASSERT_EQ(c.advance(1000.f), 0);
+    ASSERT_NEAR(c.scaledDelta(1.f), 0.f, 0.001f);
+    c.togglePause();
+    ASSERT_EQ(c.getSpeedMultiplier(), 4);
+
+    c.slower(); c.slower(); c.slower();
+    ASSERT_TRUE(c.isPaused()); // slowest step is pause
+}
+
+TEST_CASE(Test_Farm_SeasonalYield) {
+    clearTestGrid();
+    ScopedCoutSilence silence;
+    townTaxes[2] = 10;
+    FarmZone* farm = new FarmZone(4, 4, 1);
+    entities[4][4] = farm;
+    farm->isActive = true;
+
+    gameClock.setDate(1, 4, 1);  float spring = farm->dailyTax();
+    gameClock.setDate(1, 7, 1);  float summer = farm->dailyTax();
+    gameClock.setDate(1, 10, 1); float autumn = farm->dailyTax();
+    gameClock.setDate(1, 1, 1);  float winter = farm->dailyTax();
+
+    // Harvest peaks in autumn, fields rest in winter
+    ASSERT_TRUE(autumn > summer);
+    ASSERT_TRUE(summer > spring);
+    ASSERT_TRUE(spring > winter);
+    ASSERT_NEAR(autumn / spring, 1.5f, 0.01f);
+    ASSERT_NEAR(winter / spring, 0.3f, 0.01f);
+
+    townTaxes[2] = 5;
+    clearTestGrid();
+}
+
+TEST_CASE(Test_GroundRenderer_SeasonLook) {
+    generateWorld(42u);
+    GroundRenderer gr;
+    gr.prepare();
+    ASSERT_EQ(static_cast<int>(gr.snowVertexCount()), 0); // summer default: no snow
+
+    // Mid-winter: snow on land tiles only, ground rebuilt
+    gr.setSeasonLook(seasonLookAt(Season::Winter, 0.5f));
+    ASSERT_TRUE(gr.isDirty());
+    gr.prepare();
+    int land = 0;
+    for (int i = 0; i < tileMapW; i++)
+        for (int j = 0; j < tileMapH; j++)
+            if (world[i][j].terrain != Terrain::Water) land++;
+    ASSERT_EQ(static_cast<int>(gr.snowVertexCount()), land * 6);
+
+    // Same look again: no rebuild needed
+    gr.setSeasonLook(seasonLookAt(Season::Winter, 0.5f));
+    ASSERT_FALSE(gr.isDirty());
+
+    // Trees: green in spring/summer, autumn colours, snowy in winter
+    ASSERT_EQ(seasonLookAt(Season::Spring, 0.3f).treeVariant, 0);
+    ASSERT_EQ(seasonLookAt(Season::Summer, 0.3f).treeVariant, 0);
+    SeasonLook autumn = seasonLookAt(Season::Autumn, 0.3f);
+    ASSERT_EQ(autumn.treeVariant, 1);
+    ASSERT_EQ(static_cast<int>(autumn.snow), 0);
+    ASSERT_EQ(seasonLookAt(Season::Winter, 0.3f).treeVariant, 2);
+
+    // Late autumn blends toward winter: some snow starts to settle
+    SeasonLook lateAutumn = seasonLookAt(Season::Autumn, 0.95f);
+    ASSERT_TRUE(lateAutumn.snow > 0 && lateAutumn.snow < 120);
+
+    resetWorldData();
 }
 
 TEST_CASE(Test_GroundRenderer_OneQuadPerTile) {

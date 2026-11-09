@@ -9,11 +9,10 @@ public:
     ~HarbourZone() = default;
 
     void update(float deltaTime) override;
-    void simTick() override;
     void drawGround(sf::RenderWindow& window) override;
     void drawBuilding(sf::RenderWindow& window) override;
     void checkValid() override;
-    void payTax() override;
+    float dailyTax() const override;
 };
 
 inline HarbourZone::HarbourZone(int posX, int posY) {
@@ -28,7 +27,6 @@ inline HarbourZone::HarbourZone(int posX, int posY) {
 
     level = 0;
     zoneIncome = 120;
-    taxPaid = false;
 
     this->posX = posX;
     this->posY = posY;
@@ -62,11 +60,6 @@ inline void HarbourZone::update(float deltaTime) {
     setDeltaTime(deltaTime);
 }
 
-// Once per simulation tick: taxes and tier progression
-inline void HarbourZone::simTick() {
-    payTax();
-}
-
 inline void HarbourZone::drawGround(sf::RenderWindow& window) {
     if (sprite != NULL) {
         sprite->setPosition(position->x, position->y);
@@ -87,11 +80,8 @@ inline void HarbourZone::checkValid() {
     isActive = hasAdjacentRoad(posX, posY) && hasAdjacentWater(posX, posY);
 }
 
-inline void HarbourZone::payTax() {
-    if (isActive && !taxPaid && day == 1) {
-        taxPaid = true;
-        money += zoneIncome;
-    } else if (day == 2) {
-        taxPaid = false;
-    }
+// Daily tax: income x sector tax rate
+inline float HarbourZone::dailyTax() const {
+    if (!isActive) return 0.f;
+    return static_cast<float>(zoneIncome) * (static_cast<float>(townTaxes[1]) / 100.f);
 }
