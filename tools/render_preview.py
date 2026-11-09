@@ -195,72 +195,8 @@ def render_preview():
                 sp = scaled[g_key]
             canvas.alpha_composite(sp, (px, py))
 
-    # Active Vehicles Snapshot
-    vehicles = []
-    v_types = ["sedan", "taxi", "coupe", "van"]
-    # Seed traffic across the 8 avenues
-    random.seed(42)
-    for ay in avenues_y:
-        for vx in range(4, 60, 6):
-            vt = random.choice(v_types)
-            vd = "se" if (vx % 12 == 4) else "nw"
-            vehicles.append((vx, ay, vt, vd, 0.5, (-2 if vd == "se" else 2, 4 if vd == "se" else -4)))
-
-    # Seed traffic on the 8 edge-sharing cross-boulevards
-    for S in cross_boulevards:
-        for vy in range(6, 46, 8):
-            vx = S - vy
-            if 4 <= vx <= 58:
-                vt = random.choice(v_types)
-                vd = "sw" if (vy % 16 == 6) else "ne"
-                vehicles.append((vx, vy, vt, vd, 0.5, (-3 if vd == "sw" else 3, -1.5 if vd == "sw" else 1.5)))
-
-    # Active Pedestrians Snapshot
-    pedestrians = []
-    for ay in [4, 10, 16, 22, 28]:
-        for px in range(5, 59, 4):
-            ct = random.randint(0, 3)
-            pedestrians.append((px, ay, ct, random.randint(0, 1), -10, -4))
-
-    # Citizens in parks and civic grounds
-    civic_spots = [(12, 7), (20, 13), (28, 19), (36, 25), (16, 1), (44, 7), (52, 13)]
-    for (cx, cy) in civic_spots:
-        pedestrians.append((cx, cy, random.randint(0, 3), 0, 4, 6))
-        pedestrians.append((cx + 1, cy + 1, 3, 1, -6, 10))
-
-    # PASS 2: Render All Rectangular Buildings, Vehicles, and Pedestrians in Depth Order (i + j)
+    # PASS 2: Render All 2x2 Rectangular Buildings in Depth Order (i + j)
     for depth in range(GRID_W + GRID_H):
-        # 1. Draw vehicles at this depth
-        for (vx, vy, vtype, vdir, vprog, vshift) in vehicles:
-            if vx + vy == depth:
-                v_key = f"car_{vtype}_{vdir}"
-                if v_key in scaled:
-                    v_sp = scaled[v_key]
-                    sx = 32 * vx + 50 + 32
-                    sy = 32 * vy + 16 * vx + 50 + 16
-                    if vdir == "se":
-                        tx, ty = sx + 32, sy + 16
-                    elif vdir == "nw":
-                        tx, ty = sx - 32, sy - 16
-                    elif vdir == "sw":
-                        tx, ty = sx, sy + 32
-                    else:
-                        tx, ty = sx, sy - 32
-                    pos_x = sx + vprog * (tx - sx) + vshift[0] - v_sp.width // 2
-                    pos_y = sy + vprog * (ty - sy) + vshift[1] - v_sp.height // 2
-                    canvas.alpha_composite(v_sp, (int(pos_x), int(pos_y)))
-
-        # 2. Draw pedestrians at this depth
-        for (px_tile, py_tile, ctype, cframe, ox, oy) in pedestrians:
-            if px_tile + py_tile == depth:
-                p_key = f"citizen_{ctype}_walk_{cframe}"
-                if p_key in scaled:
-                    p_sp = scaled[p_key]
-                    base_x = 32 * px_tile + 50 + 32 + ox - p_sp.width // 2
-                    base_y = 32 * py_tile + 16 * px_tile + 50 + 16 + oy - p_sp.height
-                    canvas.alpha_composite(p_sp, (int(base_x), int(base_y)))
-
-        # 3. Draw 2x2 buildings at this depth
         for i in range(depth + 1):
             j = depth - i
             if 0 <= i < GRID_W and 0 <= j < GRID_H:
@@ -271,56 +207,6 @@ def render_preview():
                     py = 32 * j + 16 * i + 50
                     draw_y = py + 80 - b_sp.height
                     canvas.alpha_composite(b_sp, (px, draw_y))
-
-    # PASS 3: Dynamic Building Animations
-    # 1. Spinning Windmills
-    if "windmill_blades" in scaled:
-        w_sails = scaled["windmill_blades"].rotate(45, resample=Image.BICUBIC)
-        for fx in range(4, 26, 4):
-            for fy in [31, 37]:
-                farm_x = 32 * fx + 50
-                farm_y = 32 * fy + 16 * fx + 50 + 80 - scaled["farm_v2"].height
-                hub_x = farm_x + 36 - w_sails.width // 2
-                hub_y = farm_y + 16 - w_sails.height // 2
-                canvas.alpha_composite(w_sails, (hub_x, hub_y))
-
-    # 2. Billowing Smokestacks on Factories
-    for ix in range(28, 60, 4):
-        for iy, ikey in [(31, "ind_t1_v1"), (37, "ind_t3_v1")]:
-            fac_x = 32 * ix + 50
-            fac_y = 32 * iy + 16 * ix + 50 + 80 - scaled[ikey].height
-            puffs = [(12, -4, 0), (16, -18, 1), (22, -34, 2), (28, -50, 3)]
-            for (off_x, off_y, frame) in puffs:
-                p_key = f"smoke_puff_{frame}"
-                if p_key in scaled:
-                    smk = scaled[p_key]
-                    canvas.alpha_composite(smk, (fac_x + off_x, fac_y + off_y))
-
-    # 3. Sparkling Park Fountains
-    if "fountain_1" in scaled:
-        fnt = scaled["fountain_1"]
-        for fx in range(8, 56, 12):
-            for fy in [1, 7, 13, 19, 25]:
-                park_x = 32 * fx + 50
-                park_y = 32 * fy + 16 * fx + 50 + 80 - scaled["park"].height
-                canvas.alpha_composite(fnt, (park_x + 48 - fnt.width // 2, park_y + 26 - fnt.height // 2))
-
-    # 4. Skyscraper Rooftop Red Warning Beacons
-    if "beacon_light" in scaled:
-        bcn = scaled["beacon_light"]
-        for bx in range(4, 60, 4):
-            for by, bkey, off_y in [(13, "res_t3_v1", -12), (19, "com_t3_v1", -24)]:
-                b_x = 32 * bx + 50
-                b_y = 32 * by + 16 * bx + 50 + 80 - scaled[bkey].height
-                canvas.alpha_composite(bcn, (b_x + 46 - bcn.width // 2, b_y + off_y - bcn.height // 2))
-
-    # 5. Harbour Crane Amber Warning Lights
-    if "harbour_crane_light" in scaled:
-        h_light = scaled["harbour_crane_light"]
-        for hx in range(4, 57, 4):
-            harb_x = 32 * hx + 50
-            harb_y = 32 * 49 + 16 * hx + 50 + 80 - scaled["harbour"].height
-            canvas.alpha_composite(h_light, (harb_x + 42 - h_light.width // 2, harb_y - 8))
 
     canvas.save("tools/current_world.png")
     print("Successfully rendered 10x expanded metropolis (64x64) to tools/current_world.png!")

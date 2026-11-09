@@ -20,9 +20,6 @@
 #include "../entities/roads/DirtRoad.hpp"
 #include "../entities/GlassTile.hpp"
 #include "../simulation/HappinessSystem.hpp"
-#include "../simulation/VehicleSystem.hpp"
-#include "../simulation/PedestrianSystem.hpp"
-#include "../simulation/BuildingAnimationSystem.hpp"
 #include "../ui/Window.hpp"
 #include "../ui/Toolbar.hpp"
 
@@ -73,9 +70,6 @@ class Play_Scene : public Scene {
 public:
     Toolbar toolbar;
     HappinessSystem happinessSystem;
-    VehicleSystem vehicleSystem;
-    PedestrianSystem pedestrianSystem;
-    BuildingAnimationSystem buildingAnimationSystem;
 
     ~Play_Scene();
     void init() override;
@@ -158,17 +152,6 @@ void Play_Scene::init() {
     // Initialize TheoTown bottom dock
     toolbar.init(static_cast<float>(WINDOW_W), static_cast<float>(WINDOW_H));
 
-    // Initialize Traffic, Pedestrians, and Dynamic Building Animations
-    vehicleSystem.clear();
-    pedestrianSystem.clear();
-    buildingAnimationSystem.clear();
-    for (int v = 0; v < 25; v++) {
-        vehicleSystem.spawnVehicle();
-    }
-    for (int p = 0; p < 30; p++) {
-        pedestrianSystem.spawnCitizen();
-    }
-
     // Center camera on city center
     currentZoom = 1.0f;
     view.setSize(sf::Vector2f(static_cast<float>(WINDOW_W), static_cast<float>(WINDOW_H)));
@@ -181,11 +164,6 @@ void Play_Scene::update(float deltaTime) {
     if (placementErrorTimer > 0.f) {
         placementErrorTimer -= deltaTime;
     }
-
-    // Update autonomous vehicles, pedestrian citizens, and dynamic animations
-    vehicleSystem.update(deltaTime);
-    pedestrianSystem.update(deltaTime);
-    buildingAnimationSystem.update(deltaTime);
 
     // 1. Process Input
     handleCameraMovement(deltaTime);
@@ -850,11 +828,8 @@ void Play_Scene::renderWorld(float deltaTime) {
         }
     }
 
-    // PASS 2: Render All 3D Isometric Buildings, Vehicles, and Pedestrians in Isometric Depth Order (i + j)
+    // PASS 2: Render All 3D Isometric Buildings in Isometric Depth Order (i + j)
     for (int depth = 0; depth < tileMapW + tileMapH; depth++) {
-        vehicleSystem.drawAtDepth(_window, depth);
-        pedestrianSystem.drawAtDepth(_window, depth);
-
         for (int i = 0; i <= depth; i++) {
             int j = depth - i;
             if (i < tileMapW && j >= 0 && j < tileMapH) {
@@ -871,9 +846,6 @@ void Play_Scene::renderWorld(float deltaTime) {
             }
         }
     }
-
-    // Dynamic Building Animations (Windmill blades, factory smoke, fountain water, skyscraper beacons)
-    buildingAnimationSystem.draw(_window);
 
     // PASS 3: Drag & Build Ghost Preview & World Cursor
     renderDragPreview();

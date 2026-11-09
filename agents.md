@@ -64,10 +64,7 @@ GameEngine
             │           └── DirtRoad
             ├── World Cursor (Player.hpp)
             ├── Simulation Layer
-            │   ├── HappinessSystem (game/simulation/HappinessSystem.hpp)
-            │   ├── VehicleSystem (game/simulation/VehicleSystem.hpp)
-            │   ├── PedestrianSystem (game/simulation/PedestrianSystem.hpp)
-            │   └── BuildingAnimationSystem (game/simulation/BuildingAnimationSystem.hpp)
+            │   └── HappinessSystem (game/simulation/HappinessSystem.hpp)
             └── UI Layer
                 ├── Toolbar Dock (game/ui/Toolbar.hpp)
                 └── Window (game/ui/Window.hpp - HUD panels: Stats, Treasury, Date, Debug)
@@ -80,9 +77,6 @@ GameEngine
 - **Play_Scene (`game/scenes/Play_Scene.hpp`)** — The active simulation coordinator scene. Delegates to `handleCameraMovement()`, `handleToolHotkeys()`, `handleTileHover()`, `handleGestures()`, `renderWorld()`, and `renderHUD()`. Houses periodic throttled simulation accumulator for `HappinessSystem`.
 - **Toolbar (`game/ui/Toolbar.hpp`)** — Self-contained TheoTown dock UI component. Organizes 4 categories (`INSPECT`, `ZONING`, `CIVICS`, `INFRASTRUCTURE`) and 11 distinct tools with active state detection and shortcut indicators.
 - **HappinessSystem (`game/simulation/HappinessSystem.hpp`)** — High-performance 9-domain satisfaction engine. Computes spatial service coverage (Education, Safety, Health, Recreation, Pollution), weights economic satisfaction (taxes, jobs), and drives autonomous tier upgrades (T1 $\to$ T2 $\to$ T3).
-- **VehicleSystem (`game/simulation/VehicleSystem.hpp`)** — Autonomous traffic simulation engine. Spawns and manages vehicles (Sedans, Taxis, Coupes, Vans) navigating the road network in 4 isometric directions, respecting road adjacency, driving on right-hand lane offsets, and turning at intersections.
-- **PedestrianSystem (`game/simulation/PedestrianSystem.hpp`)** — Autonomous pedestrian simulation engine. Simulates citizens (Casual, Business, Hoodie, Students) strolling along road sidewalks and exploring civic spaces (Parks, Schools, Churches) with animated walk cycles.
-- **BuildingAnimationSystem (`game/simulation/BuildingAnimationSystem.hpp`)** — Dynamic architectural visual effects engine. Manages spinning windmill sails ($90^\circ/\text{s}$), billowing industrial smokestack smoke particles, sparkling park fountain water ripples/jets, and pulsing skyscraper aviation warning beacons.
 - **Entity (`src/Entity.hpp`)** — Base game object. Owns transform `position`, ID, naming, `isActive` status, and optional rendering primitives (`sprite`, `shape`, `text`). Safely handles rendering dispatch in `draw()` with null guards, and deallocates heap-allocated SFML objects in `~Entity()`.
 - **Zone (`game/entities/_Zone.hpp`)** — Extends `Entity`. Base class for developable and natural ground tiles. Tracks `capacity`, `population`, `zoneIncome`, `buildCost`, and tax payment state. Subclasses override `update()`, `checkValid()`, and `payTax()`.
 - **ResidentalZone (`game/entities/ResidentalZone.hpp`)** — 2x2 housing zone complex with identical `zone_residental` ground base and 3 happiness-dependent tiers (Tier 1 Cottages/Bungalow, Tier 2 Brick Apartments/Condominiums, Tier 3 Highrise Luxury Towers/Twin Plazas). Auto-upgrades and downgrades based on citizen satisfaction.
@@ -132,7 +126,7 @@ cpp-2d-citybuilder/
 ├── README.md                   # Repository overview
 ├── docs/                       # In-depth system documentation
 │   └── THEOTOWN_SIMULATION_GUIDE.md # Comprehensive guide for gameplay, simulation, & civics
-├── tests/                      # Automated test suite (35 tests)
+├── tests/                      # Automated test suite (30 tests)
 │   ├── test_framework.hpp      # Lightweight assertion and runner framework
 │   └── test_main.cpp           # Unit & integration test cases
 ├── assets/                     # Game assets (sprites and fonts)

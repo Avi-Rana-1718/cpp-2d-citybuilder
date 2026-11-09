@@ -79,52 +79,6 @@ GameEngine::GameEngine() {
     assets.addTexture("farm_v1", "farm_v1.png");
     assets.addTexture("farm_v2", "farm_v2.png");
 
-    // Autonomous Vehicles (4 isometric directions & models)
-    assets.addTexture("car_se", "car_se.png");
-    assets.addTexture("car_nw", "car_nw.png");
-    assets.addTexture("car_sw", "car_sw.png");
-    assets.addTexture("car_ne", "car_ne.png");
-    assets.addTexture("car_sedan_se", "car_sedan_se.png");
-    assets.addTexture("car_sedan_nw", "car_sedan_nw.png");
-    assets.addTexture("car_sedan_sw", "car_sedan_sw.png");
-    assets.addTexture("car_sedan_ne", "car_sedan_ne.png");
-    assets.addTexture("car_taxi_se", "car_taxi_se.png");
-    assets.addTexture("car_taxi_nw", "car_taxi_nw.png");
-    assets.addTexture("car_taxi_sw", "car_taxi_sw.png");
-    assets.addTexture("car_taxi_ne", "car_taxi_ne.png");
-    assets.addTexture("car_coupe_se", "car_coupe_se.png");
-    assets.addTexture("car_coupe_nw", "car_coupe_nw.png");
-    assets.addTexture("car_coupe_sw", "car_coupe_sw.png");
-    assets.addTexture("car_coupe_ne", "car_coupe_ne.png");
-    assets.addTexture("car_van_se", "car_van_se.png");
-    assets.addTexture("car_van_nw", "car_van_nw.png");
-    assets.addTexture("car_van_sw", "car_van_sw.png");
-    assets.addTexture("car_van_ne", "car_van_ne.png");
-
-    // Citizens & Pedestrians
-    assets.addTexture("citizen_walk_0", "citizen_walk_0.png");
-    assets.addTexture("citizen_walk_1", "citizen_walk_1.png");
-    assets.addTexture("citizen_0_walk_0", "citizen_0_walk_0.png");
-    assets.addTexture("citizen_0_walk_1", "citizen_0_walk_1.png");
-    assets.addTexture("citizen_1_walk_0", "citizen_1_walk_0.png");
-    assets.addTexture("citizen_1_walk_1", "citizen_1_walk_1.png");
-    assets.addTexture("citizen_2_walk_0", "citizen_2_walk_0.png");
-    assets.addTexture("citizen_2_walk_1", "citizen_2_walk_1.png");
-    assets.addTexture("citizen_3_walk_0", "citizen_3_walk_0.png");
-    assets.addTexture("citizen_3_walk_1", "citizen_3_walk_1.png");
-
-    // Dynamic Building Animation Elements
-    assets.addTexture("windmill_blades", "windmill_blades.png");
-    assets.addTexture("smoke_puff_0", "smoke_puff_0.png");
-    assets.addTexture("smoke_puff_1", "smoke_puff_1.png");
-    assets.addTexture("smoke_puff_2", "smoke_puff_2.png");
-    assets.addTexture("smoke_puff_3", "smoke_puff_3.png");
-    assets.addTexture("fountain_0", "fountain_0.png");
-    assets.addTexture("fountain_1", "fountain_1.png");
-    assets.addTexture("fountain_2", "fountain_2.png");
-    assets.addTexture("beacon_light", "beacon_light.png");
-    assets.addTexture("harbour_crane_light", "harbour_crane_light.png");
-
     currentScene = new Play_Scene();
 }
 
