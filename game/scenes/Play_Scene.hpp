@@ -1,7 +1,10 @@
 #pragma once
 #include <cmath>
+#include <cstdio>
 #include <vector>
 #include <algorithm>
+#include <ctime>
+#include <random>
 #include "../../src/Scene.hpp"
 #include "../../src/_global.hpp"
 
@@ -12,13 +15,14 @@
 #include "../entities/IndustrialZone.hpp"
 #include "../entities/FarmZone.hpp"
 #include "../entities/HarbourZone.hpp"
-#include "../entities/WaterTile.hpp"
 #include "../entities/SchoolZone.hpp"
 #include "../entities/ChurchZone.hpp"
 #include "../entities/ParkZone.hpp"
 #include "../entities/SubZone.hpp"
 #include "../entities/roads/DirtRoad.hpp"
-#include "../entities/GlassTile.hpp"
+#include "../world/WorldData.hpp"
+#include "../world/WorldGen.hpp"
+#include "../world/GroundRenderer.hpp"
 #include "../simulation/HappinessSystem.hpp"
 #include "../ui/Window.hpp"
 #include "../ui/Toolbar.hpp"
@@ -67,9 +71,14 @@ class Play_Scene : public Scene {
     mutable std::string lastPlacementError = "";
     float placementErrorTimer = 0.f;
 
+    // World overlay: 0 None, 1 Fertility, 2 Groundwater, 3 Deposits
+    int overlayMode = 0;
+    bool wasOverlayKeyPressed = false;
+
 public:
     Toolbar toolbar;
     HappinessSystem happinessSystem;
+    GroundRenderer ground; // natural terrain, drawn from world[][] in one call
 
     ~Play_Scene();
     void init() override;
@@ -77,6 +86,18 @@ public:
 
     bool canPlaceTile(int x, int y, BuildTool tool, std::string* outReason = nullptr) const;
     int getToolCost(BuildTool tool) const;
+    int getBulldozeCost(int x, int y) const;
+    std::string getOverlayName() const;
+    int getOverlayMode() const { return overlayMode; }
+    void setOverlayMode(int mode) { overlayMode = (mode >= 0 && mode < 4) ? mode : 0; }
+    sf::FloatRect viewPanelBounds() const;
+    sf::FloatRect viewButtonBounds(int mode) const;
+    bool handleViewPanelClick(const sf::Vector2f& point);
+    void placeTile(int x, int y, BuildTool tool);
+    void refreshRoadsAround(int x, int y);
+    void refreshBuildingsAround(int x, int y);
+    int buildBenchCity();
+    void runSimulationTick();
 
 private:
     void handleCameraMovement(float deltaTime);
@@ -85,6 +106,8 @@ private:
     void handleGestures(bool isHoveringTile, bool mouseOverUI);
 
     void renderWorld(float deltaTime);
+    void renderOverlay(float viewL, float viewR, float viewT, float viewB);
+    void renderViewPanel(const sf::Font& font, const sf::Vector2f& mouse);
     void renderDragPreview();
     void renderHUD(float deltaTime);
 
@@ -92,9 +115,7 @@ private:
     void populateCity();
 
     std::vector<sf::Vector2i> computeDragTiles() const;
-    void placeTile(int x, int y, BuildTool tool);
     void executeMultibuild();
-    void buildTestWorld();
 };
 
 Play_Scene::~Play_Scene() {
@@ -139,23 +160,32 @@ void Play_Scene::init() {
     // Initialize Tile Cursor
     player = new Player;
 
-    // Fill map with default grass tiles
-    for (int i = 0; i < tileMapW; i++) {
-        for (int j = 0; j < tileMapH; j++) {
-            entities[i][j] = new GrassTile(i, j);
-        }
+    // Procedural world: seed from --seed, or random when unset
+    if (worldSeed == 0) {
+        std::random_device rd;
+        worldSeed = rd() ^ static_cast<uint32_t>(std::time(nullptr));
+        if (worldSeed == 0) worldSeed = 1;
     }
-
-    // Build showcase test world with all sprites
-    buildTestWorld();
+    generateWorld(worldSeed);
+    materializeWorld(); // no structures yet: the whole map is natural ground
+    ground.markDirty();
+    std::cout << "\nWorld generated with seed: " << worldSeed
+              << " (spawn " << worldSpawnX << ", " << worldSpawnY << ")\n";
+    if (benchCity) {
+        int built = buildBenchCity();
+        std::cout << "\nBench city: " << built << " buildings\n";
+    }
+    happinessSystem.updateSimulation();
 
     // Initialize TheoTown bottom dock
     toolbar.init(static_cast<float>(WINDOW_W), static_cast<float>(WINDOW_H));
 
-    // Center camera on city center
-    currentZoom = 1.0f;
-    view.setSize(sf::Vector2f(static_cast<float>(WINDOW_W), static_cast<float>(WINDOW_H)));
-    view.setCenter(sf::Vector2f(1050.f, 1500.f));
+    // Center camera on the guaranteed spawn area
+    currentZoom = std::max(0.4f, std::min(3.2f, startZoom));
+    view.setSize(sf::Vector2f(static_cast<float>(WINDOW_W) * currentZoom, static_cast<float>(WINDOW_H) * currentZoom));
+    float spawnPx = static_cast<float>(tileSizeX * worldSpawnX - worldSpawnX * (tileSizeX / 2)) + tileSizeX / 2.f;
+    float spawnPy = static_cast<float>(tileSizeY * worldSpawnY + worldSpawnX * (tileSizeY / 2)) + tileSizeY / 2.f;
+    view.setCenter(sf::Vector2f(spawnPx, spawnPy));
     _window.setView(view);
 }
 
@@ -166,22 +196,34 @@ void Play_Scene::update(float deltaTime) {
     }
 
     // 1. Process Input
-    handleCameraMovement(deltaTime);
-    handleToolHotkeys();
+    // sf::Keyboard / sf::Mouse report global device state, so typing or
+    // clicking in another application would otherwise drive the game.
+    const bool focused = _window.hasFocus();
+    if (focused) {
+        handleCameraMovement(deltaTime);
+        handleToolHotkeys();
+    }
 
     sf::Vector2i mousePixel = sf::Mouse::getPosition(_window);
     sf::Vector2f mousePixelF(static_cast<float>(mousePixel.x), static_cast<float>(mousePixel.y));
 
     // Check if mouse is interacting with UI elements
-    bool mouseOverUI = toolbar.contains(mousePixelF) || (mousePixelF.y <= 50.f);
+    bool overViewPanel = viewPanelBounds().contains(mousePixelF);
+    bool mouseOverUI = !focused || toolbar.contains(mousePixelF) || overViewPanel || (mousePixelF.y <= 50.f);
 
-    bool isLeftPressed = sf::Mouse::isButtonPressed(sf::Mouse::Left);
+    bool isLeftPressed = focused && sf::Mouse::isButtonPressed(sf::Mouse::Left);
     if (isLeftPressed && !wasLeftPressed && mouseOverUI) {
-        toolbar.handleClick(mousePixelF);
+        if (overViewPanel) {
+            handleViewPanelClick(mousePixelF);
+        } else {
+            toolbar.handleClick(mousePixelF);
+        }
     }
 
     bool isHoveringTile = handleTileHover(mousePixel, mouseOverUI);
-    handleGestures(isHoveringTile, mouseOverUI);
+    if (focused) {
+        handleGestures(isHoveringTile, mouseOverUI);
+    }
 
     refreshUI();
 
@@ -194,7 +236,7 @@ void Play_Scene::update(float deltaTime) {
     // 3. Economy & Simulation Tick
     simAccumulator += deltaTime;
     if (simAccumulator >= 1.0f) {
-        happinessSystem.updateSimulation();
+        runSimulationTick();
         simAccumulator = 0.f;
     }
 
@@ -283,6 +325,12 @@ void Play_Scene::handleToolHotkeys() {
     if (sf::Keyboard::isKeyPressed(sf::Keyboard::X)) {
         toolbar.setActiveTool(TOOL_BULLDOZE);
     }
+    // O cycles the map view (edge-triggered)
+    bool overlayKey = sf::Keyboard::isKeyPressed(sf::Keyboard::O);
+    if (overlayKey && !wasOverlayKeyPressed) {
+        overlayMode = (overlayMode + 1) % 4;
+    }
+    wasOverlayKeyPressed = overlayKey;
 }
 
 bool Play_Scene::handleTileHover(const sf::Vector2i& mousePixel, bool mouseOverUI) {
@@ -308,9 +356,9 @@ bool Play_Scene::handleTileHover(const sf::Vector2i& mousePixel, bool mouseOverU
 
     for (int i = minI; i <= maxI; i++) {
         for (int j = minJ; j <= maxJ; j++) {
-            if (entities[i][j] == NULL || entities[i][j]->position == NULL) continue;
-            float px = entities[i][j]->position->x;
-            float py = entities[i][j]->position->y;
+            sf::Vector2f tp = tileScreenPos(i, j);
+            float px = tp.x;
+            float py = tp.y;
 
             if (mouseWorld.x >= px && mouseWorld.x < px + tileSizeX &&
                 mouseWorld.y >= py && mouseWorld.y < py + tileSizeY) {
@@ -331,8 +379,9 @@ bool Play_Scene::handleTileHover(const sf::Vector2i& mousePixel, bool mouseOverU
         tileY = hoveredY;
         if (player != NULL) {
             player->isActive = true;
-            player->position->x = entities[tileX][tileY]->position->x;
-            player->position->y = entities[tileX][tileY]->position->y;
+            sf::Vector2f tp = tileScreenPos(tileX, tileY);
+            player->position->x = tp.x;
+            player->position->y = tp.y;
         }
         return true;
     }
@@ -467,19 +516,62 @@ int Play_Scene::getToolCost(BuildTool tool) const {
     }
 }
 
+int Play_Scene::getBulldozeCost(int x, int y) const {
+    const std::string kind = tileKind(x, y);
+    if (kind == "Forest") return 15;
+    if (kind == "Rock") return 60;
+    return getToolCost(TOOL_BULLDOZE);
+}
+
+std::string Play_Scene::getOverlayName() const {
+    switch (overlayMode) {
+        case 1: return "Fertility";
+        case 2: return "Groundwater";
+        case 3: return "Deposits";
+        default: return "Normal";
+    }
+}
+
+// Map View panel: fixed screen-space buttons under the top bar (left side)
+sf::FloatRect Play_Scene::viewPanelBounds() const {
+    return sf::FloatRect(12.f, 60.f, 180.f, 196.f);
+}
+
+sf::FloatRect Play_Scene::viewButtonBounds(int mode) const {
+    sf::FloatRect panel = viewPanelBounds();
+    return sf::FloatRect(panel.left + 10.f, panel.top + 30.f + static_cast<float>(mode) * 30.f, panel.width - 20.f, 26.f);
+}
+
+bool Play_Scene::handleViewPanelClick(const sf::Vector2f& point) {
+    for (int m = 0; m < 4; m++) {
+        if (viewButtonBounds(m).contains(point)) {
+            setOverlayMode(m);
+            return true;
+        }
+    }
+    return false;
+}
+
 bool Play_Scene::canPlaceTile(int x, int y, BuildTool tool, std::string* outReason) const {
     if (tool == TOOL_NONE) return false;
 
-    int cost = getToolCost(tool);
+    int cost = (tool == TOOL_BULLDOZE) ? getBulldozeCost(x, y) : getToolCost(tool);
     if (money < cost) {
         if (outReason) *outReason = "Insufficient Funds ($" + std::to_string(cost) + " needed)";
         return false;
     }
 
+    // Natural obstacles that must be bulldozed before building
+    auto terrainBlockReason = [](const std::string& name) -> std::string {
+        if (name == "Forest") return "Forest - Clear First (Bulldoze)";
+        if (name == "Rock") return "Rocky Terrain - Clear First (Bulldoze)";
+        return "";
+    };
+
     // 1. Bulldoze Tool
     if (tool == TOOL_BULLDOZE) {
         if (x < 0 || x >= tileMapW || y < 0 || y >= tileMapH) return false;
-        if (entities[x][y] == nullptr || entities[x][y]->getName() == "GrassTile") {
+        if (isClearGroundName(tileKind(x, y))) {
             if (outReason) *outReason = "Already Clear Ground";
             return false;
         }
@@ -489,17 +581,20 @@ bool Play_Scene::canPlaceTile(int x, int y, BuildTool tool, std::string* outReas
     // 2. Road Tool (1x1)
     if (tool == TOOL_ROAD) {
         if (x < 0 || x >= tileMapW || y < 0 || y >= tileMapH) return false;
-        if (entities[x][y] == nullptr) return false;
-        std::string name = entities[x][y]->getName();
+        std::string name = tileKind(x, y);
         if (name == "DirtRoad") {
             if (outReason) *outReason = "Road Already Built";
             return false;
         }
-        if (name == "WaterTile") {
+        if (name == "Water") {
             if (outReason) *outReason = "Cannot Build Road on Water";
             return false;
         }
-        if (name != "GrassTile") {
+        if (!terrainBlockReason(name).empty()) {
+            if (outReason) *outReason = terrainBlockReason(name);
+            return false;
+        }
+        if (!isClearGroundName(name)) {
             if (outReason) *outReason = "Blocked by Structure — Bulldoze First";
             return false;
         }
@@ -509,13 +604,16 @@ bool Play_Scene::canPlaceTile(int x, int y, BuildTool tool, std::string* outReas
     // 3. Water Tool (1x1)
     if (tool == TOOL_WATER) {
         if (x < 0 || x >= tileMapW || y < 0 || y >= tileMapH) return false;
-        if (entities[x][y] == nullptr) return false;
-        std::string name = entities[x][y]->getName();
-        if (name == "WaterTile") {
+        std::string name = tileKind(x, y);
+        if (name == "Water") {
             if (outReason) *outReason = "Already Water";
             return false;
         }
-        if (name != "GrassTile") {
+        if (!terrainBlockReason(name).empty()) {
+            if (outReason) *outReason = terrainBlockReason(name);
+            return false;
+        }
+        if (!isClearGroundName(name)) {
             if (outReason) *outReason = "Area Occupied — Bulldoze First";
             return false;
         }
@@ -535,56 +633,29 @@ bool Play_Scene::canPlaceTile(int x, int y, BuildTool tool, std::string* outReas
     for (int k = 0; k < 4; k++) {
         int cx = x + diamondOffsets[k].x;
         int cy = y + diamondOffsets[k].y;
-        if (cx < 0 || cx >= tileMapW || cy < 0 || cy >= tileMapH || entities[cx][cy] == nullptr) return false;
-        std::string name = entities[cx][cy]->getName();
+        if (cx < 0 || cx >= tileMapW || cy < 0 || cy >= tileMapH) return false;
+        std::string name = tileKind(cx, cy);
         if (name == "DirtRoad") {
             if (outReason) *outReason = "Blocked by Road!";
             return false;
         }
-        if (name == "WaterTile") {
+        if (name == "Water") {
             if (outReason) *outReason = "Blocked by Water!";
             return false;
         }
-        if (name != "GrassTile") {
+        if (!terrainBlockReason(name).empty()) {
+            if (outReason) *outReason = terrainBlockReason(name);
+            return false;
+        }
+        if (!isClearGroundName(name)) {
             if (outReason) *outReason = "Lot Occupied — Bulldoze First!";
             return false;
         }
     }
 
-    // Check perimeter adjacency (tiles bordering the true 2x2 diamond)
-    bool touchesRoad = false;
-    bool touchesWater = false;
-
-    auto checkPerim = [&](int px, int py) {
-        if (px < 0 || px >= tileMapW || py < 0 || py >= tileMapH) return;
-        if (entities[px][py] == nullptr) return;
-        std::string n = entities[px][py]->getName();
-        if (n == "DirtRoad") touchesRoad = true;
-        if (n == "WaterTile") touchesWater = true;
-    };
-
-    // Check all neighboring tiles surrounding the 4 footprint tiles
-    for (int k = 0; k < 4; k++) {
-        int fx = x + diamondOffsets[k].x;
-        int fy = y + diamondOffsets[k].y;
-        for (int di = -1; di <= 1; di++) {
-            for (int dj = -1; dj <= 1; dj++) {
-                if (di == 0 && dj == 0) continue;
-                int nx = fx + di;
-                int ny = fy + dj;
-                bool inFootprint = false;
-                for (int m = 0; m < 4; m++) {
-                    if (nx == x + diamondOffsets[m].x && ny == y + diamondOffsets[m].y) {
-                        inFootprint = true;
-                        break;
-                    }
-                }
-                if (!inFootprint) {
-                    checkPerim(nx, ny);
-                }
-            }
-        }
-    }
+    // Access: road / water on a tile sharing an edge with the footprint
+    bool touchesRoad = hasAdjacentRoad(x, y);
+    bool touchesWater = hasAdjacentWater(x, y);
 
     if (tool == TOOL_HARBOUR) {
         if (!touchesWater) {
@@ -618,11 +689,18 @@ void Play_Scene::placeTile(int x, int y, BuildTool tool) {
         return;
     }
 
-    int cost = getToolCost(tool);
+    int cost = (tool == TOOL_BULLDOZE) ? getBulldozeCost(x, y) : getToolCost(tool);
 
     auto demolishAt = [&](int tx, int ty) {
         if (tx < 0 || tx >= tileMapW || ty < 0 || ty >= tileMapH) return;
-        if (entities[tx][ty] == NULL) return;
+        if (entities[tx][ty] == NULL) {
+            // Clearing natural ground (forest, rock, water) turns it into grassland
+            if (isNaturalObstacleName(tileKind(tx, ty))) {
+                world[tx][ty].terrain = Terrain::Grass;
+                ground.markDirty();
+            }
+            return;
+        }
         Zone* z = dynamic_cast<Zone*>(entities[tx][ty]);
         if (z != NULL && z->isMultiTile) {
             int rx = z->isSubTile ? z->rootX : tx;
@@ -633,17 +711,21 @@ void Play_Scene::placeTile(int x, int y, BuildTool tool) {
                 int cy = ry + dOffsets[k].y;
                 if (cx >= 0 && cx < tileMapW && cy >= 0 && cy < tileMapH) {
                     delete entities[cx][cy];
-                    entities[cx][cy] = new GrassTile(cx, cy);
+                    entities[cx][cy] = NULL;
                 }
             }
         } else {
+            // Structure removed: the natural ground underneath shows again
             delete entities[tx][ty];
-            entities[tx][ty] = new GrassTile(tx, ty);
+            entities[tx][ty] = NULL;
         }
     };
 
     if (tool == TOOL_BULLDOZE) {
+        bool wasRoad = (tileKind(x, y) == "DirtRoad");
         demolishAt(x, y);
+        if (wasRoad) refreshRoadsAround(x, y);
+        refreshBuildingsAround(x, y); // a removed road or water tile can disconnect neighbours
         money -= cost;
         return;
     }
@@ -651,15 +733,18 @@ void Play_Scene::placeTile(int x, int y, BuildTool tool) {
     if (tool == TOOL_ROAD) {
         delete entities[x][y];
         entities[x][y] = new DirtRoad(x, y);
-        DirtRoad* r = dynamic_cast<DirtRoad*>(entities[x][y]);
-        if (r != NULL) r->check();
+        refreshRoadsAround(x, y); // the new road and every road touching it
+        refreshBuildingsAround(x, y);
         money -= cost;
         return;
     }
 
     if (tool == TOOL_WATER) {
         delete entities[x][y];
-        entities[x][y] = new WaterTile(x, y);
+        entities[x][y] = NULL;
+        world[x][y].terrain = Terrain::Water;
+        ground.markDirty();
+        refreshBuildingsAround(x, y); // harbours need water on their border
         money -= cost;
         return;
     }
@@ -763,6 +848,7 @@ void Play_Scene::placeTile(int x, int y, BuildTool tool) {
     entities[x + 1][y]     = new SubZone(x + 1, y,     x, y, typeName, zoneBase);
     entities[x - 1][y + 1] = new SubZone(x - 1, y + 1, x, y, typeName, zoneBase);
     entities[x][y + 1]     = new SubZone(x,     y + 1, x, y, typeName, zoneBase);
+    masterZone->checkValid();
 }
 
 void Play_Scene::executeMultibuild() {
@@ -779,14 +865,78 @@ void Play_Scene::executeMultibuild() {
         int gy = isDragging ? dragCurrent.y : tileY;
         placeTile(gx, gy, tool);
     }
+}
 
-    // Refresh road orientations across map
+// Once per second: every structure's slow step (taxes, tiers, sub-tile
+// state), then citizen happiness, which reads the results.
+void Play_Scene::runSimulationTick() {
     for (int i = 0; i < tileMapW; i++) {
         for (int j = 0; j < tileMapH; j++) {
-            if (entities[i][j] != NULL && entities[i][j]->getName() == "DirtRoad") {
-                DirtRoad* road = dynamic_cast<DirtRoad*>(entities[i][j]);
-                if (road != NULL) road->check();
+            if (entities[i][j] == NULL) continue;
+            Zone* z = dynamic_cast<Zone*>(entities[i][j]);
+            if (z != NULL) z->simTick();
+        }
+    }
+    happinessSystem.updateSimulation();
+}
+
+// Fills the map with a dense grid city for benchmarking (--bench-city).
+// Road rows run east-west every 3 rows; each 2x2 building sits on the row
+// below a road so the road shares its north-east edge. Natural obstacles
+// in the way are cleared first. Returns the number of buildings placed.
+int Play_Scene::buildBenchCity() {
+    const int savedMoney = money;
+    money = 100000000;
+
+    for (int i = 0; i < tileMapW; i++) {
+        for (int j = 0; j < tileMapH; j++) {
+            if (isNaturalObstacleName(tileKind(i, j))) world[i][j].terrain = Terrain::Grass;
+        }
+    }
+    ground.markDirty();
+
+    for (int y = 1; y + 2 < tileMapH; y += 3) {
+        for (int x = 0; x < tileMapW; x++) placeTile(x, y, TOOL_ROAD);
+    }
+
+    const BuildTool types[6] = {TOOL_RES_COTTAGES, TOOL_COM_GROCERY, TOOL_IND_WORKSHOP,
+                                TOOL_RES_APARTMENTS, TOOL_FARM_BARN, TOOL_SCHOOL};
+    int built = 0;
+    int k = 0;
+    for (int y = 1; y + 2 < tileMapH; y += 3) {
+        for (int x = 1; x + 1 < tileMapW; x += 2) {
+            BuildTool t = types[k++ % 6];
+            if (canPlaceTile(x, y + 1, t)) {
+                placeTile(x, y + 1, t);
+                built++;
             }
+        }
+    }
+
+    money = savedMoney;
+    return built;
+}
+
+// Re-checks road access for every 2x2 building whose border could include
+// (x, y). Border tiles sit at most 2 tiles from the building's root.
+void Play_Scene::refreshBuildingsAround(int x, int y) {
+    for (int i = x - 2; i <= x + 2; i++) {
+        for (int j = y - 2; j <= y + 2; j++) {
+            if (!inWorldBounds(i, j) || entities[i][j] == NULL) continue;
+            Zone* z = dynamic_cast<Zone*>(entities[i][j]);
+            if (z != NULL && z->isMultiTile && !z->isSubTile) z->checkValid();
+        }
+    }
+}
+
+// Re-runs road autotiling for (x, y) and its 8 neighbours, which covers
+// every direction DirtRoad::check() looks at.
+void Play_Scene::refreshRoadsAround(int x, int y) {
+    for (int i = x - 1; i <= x + 1; i++) {
+        for (int j = y - 1; j <= y + 1; j++) {
+            if (!inWorldBounds(i, j) || entities[i][j] == NULL) continue;
+            DirtRoad* road = dynamic_cast<DirtRoad*>(entities[i][j]);
+            if (road != NULL) road->check();
         }
     }
 }
@@ -799,13 +949,8 @@ void Play_Scene::renderWorld(float deltaTime) {
         if (bg[i] != NULL) bg[i]->update(deltaTime);
     }
 
-    // Update simulation logic and status
-    for (int i = 0; i < tileMapW; i++) {
-        for (int j = 0; j < tileMapH; j++) {
-            if (entities[i][j] != NULL)
-                entities[i][j]->update(deltaTime);
-        }
-    }
+    // No per-frame entity update: map entities have no per-frame logic.
+    // Their simulation runs in runSimulationTick() once per second.
 
     // Viewport frustum culling bounds
     sf::Vector2f vCenter = view.getCenter();
@@ -815,14 +960,21 @@ void Play_Scene::renderWorld(float deltaTime) {
     float viewT = vCenter.y - vSize.y / 2.f - 200.f; // Skyscraper height margin
     float viewB = vCenter.y + vSize.y / 2.f + 64.f;
 
+    const float tallMargin = 140.f; // buildings and trees rise above their tile
     auto isVisible = [&](float px, float py) -> bool {
         return (px + tileSizeX >= viewL && px <= viewR &&
-                py + tileSizeY + 140.f >= viewT && py <= viewB);
+                py + tileSizeY + tallMargin >= viewT && py <= viewB);
     };
 
-    // PASS 1: Render All Ground Tiles (Grass, Roads, Water, Zone Bases)
-    for (int i = 0; i < tileMapW; i++) {
-        for (int j = 0; j < tileMapH; j++) {
+    // Only tiles inside the camera's band are visited by the draw passes
+    const VisibleTiles vis = visibleTileRange(viewL, viewR, viewT, viewB, tallMargin);
+
+    // PASS 1a: Natural ground for the whole map in a single draw call
+    ground.draw(_window);
+
+    // PASS 1b: Ground layer of structures (roads, zone bases)
+    for (int i = vis.iMin; i <= vis.iMax; i++) {
+        for (int j = vis.jMin(i); j <= vis.jMax(i); j++) {
             if (entities[i][j] != NULL && entities[i][j]->position != NULL) {
                 float px = entities[i][j]->position->x;
                 float py = entities[i][j]->position->y;
@@ -838,11 +990,21 @@ void Play_Scene::renderWorld(float deltaTime) {
         }
     }
 
-    // PASS 2: Render All 3D Isometric Buildings in Isometric Depth Order (i + j)
-    for (int depth = 0; depth < tileMapW + tileMapH; depth++) {
-        for (int i = 0; i <= depth; i++) {
+    // PASS 1.5: Resource / soil overlay
+    if (overlayMode != 0) {
+        renderOverlay(viewL, viewR, viewT, viewB);
+    }
+
+    // PASS 2: Render 3D Isometric Buildings in Isometric Depth Order (i + j),
+    // walking only the depths and tiles inside the visible band
+    const int jLo = vis.jLowest();
+    const int jHi = vis.jHighest();
+    for (int depth = vis.iMin + jLo; depth <= vis.iMax + jHi; depth++) {
+        int iFrom = std::max(vis.iMin, depth - jHi);
+        int iTo = std::min(vis.iMax, depth - jLo);
+        for (int i = iFrom; i <= iTo; i++) {
             int j = depth - i;
-            if (i < tileMapW && j >= 0 && j < tileMapH) {
+            if (j >= vis.jMin(i) && j <= vis.jMax(i)) {
                 if (entities[i][j] != NULL && entities[i][j]->position != NULL) {
                     Zone* z = dynamic_cast<Zone*>(entities[i][j]);
                     if (z != NULL && !z->isSubTile) {
@@ -851,6 +1013,12 @@ void Play_Scene::renderWorld(float deltaTime) {
                         if (isVisible(px, py)) {
                             z->drawBuilding(_window);
                         }
+                    }
+                } else if (entities[i][j] == NULL) {
+                    Terrain t = world[i][j].terrain;
+                    if (t == Terrain::Forest || t == Terrain::Rock) {
+                        sf::Vector2f tp = tileScreenPos(i, j);
+                        if (isVisible(tp.x, tp.y)) ground.drawTall(_window, i, j);
                     }
                 }
             }
@@ -862,6 +1030,139 @@ void Play_Scene::renderWorld(float deltaTime) {
 
     if (player != NULL && player->isActive && !isDragging) {
         player->update(deltaTime);
+    }
+}
+
+void Play_Scene::renderOverlay(float viewL, float viewR, float viewT, float viewB) {
+    sf::ConvexShape diamond(4);
+    diamond.setPoint(0, sf::Vector2f(32.f, 0.f));
+    diamond.setPoint(1, sf::Vector2f(64.f, 16.f));
+    diamond.setPoint(2, sf::Vector2f(32.f, 32.f));
+    diamond.setPoint(3, sf::Vector2f(0.f, 16.f));
+
+    const VisibleTiles vis = visibleTileRange(viewL, viewR, viewT, viewB, 0.f);
+    for (int i = vis.iMin; i <= vis.iMax; i++) {
+        for (int j = vis.jMin(i); j <= vis.jMax(i); j++) {
+            sf::Vector2f tp = tileScreenPos(i, j);
+            float px = tp.x;
+            float py = tp.y;
+            if (px + tileSizeX < viewL || px > viewR || py + tileSizeY < viewT || py > viewB) continue;
+
+            const TileData& td = world[i][j];
+            if (td.terrain == Terrain::Water) continue;
+
+            sf::Color col(0, 0, 0, 0);
+            if (overlayMode == 1) {
+                // Fertility: red (barren) -> yellow -> green (rich)
+                float f = static_cast<float>(td.fertility) / 100.f;
+                sf::Uint8 r = static_cast<sf::Uint8>(f < 0.5f ? 210 : 210 - (f - 0.5f) * 2.f * 170.f);
+                sf::Uint8 g = static_cast<sf::Uint8>(f < 0.5f ? 60 + f * 2.f * 150.f : 210);
+                col = sf::Color(r, g, 50, 120);
+            } else if (overlayMode == 2) {
+                // Groundwater: deeper blue = more water underground
+                sf::Uint8 a = static_cast<sf::Uint8>(30 + td.groundwater * 1.7f);
+                col = sf::Color(40, 130, 230, a);
+            } else if (overlayMode == 3) {
+                if (td.deposit == Deposit::None) {
+                    col = sf::Color(10, 12, 18, 90); // dim empty land so deposits stand out
+                } else {
+                    sf::Uint8 a = static_cast<sf::Uint8>(90 + td.depositAmount * 1.5f);
+                    if (td.deposit == Deposit::Coal) col = sf::Color(25, 25, 30, a);
+                    else if (td.deposit == Deposit::Iron) col = sf::Color(200, 85, 30, a);
+                    else col = sf::Color(215, 215, 220, a);
+                }
+            }
+
+            diamond.setPosition(px, py);
+            diamond.setFillColor(col);
+            _window.draw(diamond);
+        }
+    }
+}
+
+void Play_Scene::renderViewPanel(const sf::Font& font, const sf::Vector2f& mouse) {
+    sf::FloatRect panel = viewPanelBounds();
+    sf::RectangleShape bgRect(sf::Vector2f(panel.width, panel.height));
+    bgRect.setPosition(panel.left, panel.top);
+    bgRect.setFillColor(sf::Color(16, 22, 30, 230));
+    bgRect.setOutlineColor(sf::Color(45, 60, 80, 220));
+    bgRect.setOutlineThickness(1.5f);
+    _window.draw(bgRect);
+
+    sf::Text label;
+    label.setFont(font);
+    label.setCharacterSize(12);
+    label.setStyle(sf::Text::Bold);
+    label.setFillColor(sf::Color(180, 195, 210));
+    label.setString("MAP VIEW [O]");
+    label.setPosition(panel.left + 10.f, panel.top + 8.f);
+    _window.draw(label);
+
+    const char* names[4] = {"Normal", "Fertility", "Groundwater", "Deposits"};
+    const sf::Color accents[4] = {
+        sf::Color(149, 165, 166), sf::Color(120, 200, 70), sf::Color(52, 152, 219), sf::Color(220, 120, 50)
+    };
+
+    label.setStyle(sf::Text::Regular);
+    for (int m = 0; m < 4; m++) {
+        sf::FloatRect b = viewButtonBounds(m);
+        bool active = (overlayMode == m);
+        bool hovered = b.contains(mouse);
+
+        sf::RectangleShape btn(sf::Vector2f(b.width, b.height));
+        btn.setPosition(b.left, b.top);
+        if (active) {
+            btn.setFillColor(sf::Color(accents[m].r / 4, accents[m].g / 4, accents[m].b / 4, 255));
+            btn.setOutlineColor(accents[m]);
+            btn.setOutlineThickness(2.f);
+        } else {
+            btn.setFillColor(hovered ? sf::Color(38, 48, 62, 240) : sf::Color(25, 31, 40, 215));
+            btn.setOutlineColor(sf::Color(50, 60, 75, 180));
+            btn.setOutlineThickness(1.f);
+        }
+        _window.draw(btn);
+
+        sf::RectangleShape swatch(sf::Vector2f(4.f, b.height - 8.f));
+        swatch.setPosition(b.left + 5.f, b.top + 4.f);
+        swatch.setFillColor(accents[m]);
+        _window.draw(swatch);
+
+        label.setCharacterSize(12);
+        label.setFillColor(active ? sf::Color::White : sf::Color(190, 200, 210));
+        label.setString(names[m]);
+        label.setPosition(b.left + 16.f, b.top + 5.f);
+        _window.draw(label);
+    }
+
+    // Legend for the active view
+    float ly = viewButtonBounds(3).top + 34.f;
+    label.setCharacterSize(10);
+    label.setFillColor(sf::Color(150, 165, 180));
+    auto drawKey = [&](float x, const sf::Color& c, const std::string& text) {
+        sf::RectangleShape key(sf::Vector2f(10.f, 10.f));
+        key.setPosition(x, ly + 2.f);
+        key.setFillColor(c);
+        key.setOutlineColor(sf::Color(90, 100, 115));
+        key.setOutlineThickness(1.f);
+        _window.draw(key);
+        label.setString(text);
+        label.setPosition(x + 14.f, ly);
+        _window.draw(label);
+    };
+    if (overlayMode == 0) {
+        label.setString("Terrain only");
+        label.setPosition(panel.left + 10.f, ly);
+        _window.draw(label);
+    } else if (overlayMode == 1) {
+        drawKey(panel.left + 10.f, sf::Color(210, 60, 50), "Barren");
+        drawKey(panel.left + 92.f, sf::Color(40, 210, 50), "Rich");
+    } else if (overlayMode == 2) {
+        drawKey(panel.left + 10.f, sf::Color(40, 130, 230, 80), "Low");
+        drawKey(panel.left + 92.f, sf::Color(40, 130, 230, 230), "High");
+    } else {
+        drawKey(panel.left + 10.f, sf::Color(25, 25, 30), "Coal");
+        drawKey(panel.left + 64.f, sf::Color(200, 85, 30), "Iron");
+        drawKey(panel.left + 116.f, sf::Color(215, 215, 220), "Stone");
     }
 }
 
@@ -880,8 +1181,7 @@ void Play_Scene::renderDragPreview() {
 
     auto highlightTile = [&](int tx, int ty, const sf::Color& fill, const sf::Color& outline) {
         if (tx < 0 || tx >= tileMapW || ty < 0 || ty >= tileMapH) return;
-        if (entities[tx][ty] == NULL || entities[tx][ty]->position == NULL) return;
-        diamond1x1.setPosition(entities[tx][ty]->position->x, entities[tx][ty]->position->y);
+        diamond1x1.setPosition(tileScreenPos(tx, ty));
         diamond1x1.setFillColor(fill);
         diamond1x1.setOutlineColor(outline);
         diamond1x1.setOutlineThickness(1.5f);
@@ -899,9 +1199,9 @@ void Play_Scene::renderDragPreview() {
         for (const auto& pt : previewTiles) {
             int gx = pt.x, gy = pt.y;
             if (gx < 0 || gx >= tileMapW || gy < 0 || gy >= tileMapH) continue;
-            if (entities[gx][gy] == NULL || entities[gx][gy]->position == NULL) continue;
-            float px = entities[gx][gy]->position->x;
-            float py = entities[gx][gy]->position->y;
+            sf::Vector2f tp = tileScreenPos(gx, gy);
+            float px = tp.x;
+            float py = tp.y;
 
             std::string reason = "";
             bool ok = canPlaceTile(gx, gy, tool, &reason);
@@ -933,8 +1233,8 @@ void Play_Scene::renderDragPreview() {
         for (const auto& pt : previewTiles) {
             int gx = pt.x, gy = pt.y;
             if (gx < 0 || gx >= tileMapW || gy < 0 || gy >= tileMapH) continue;
-            if (entities[gx][gy] != NULL && entities[gx][gy]->position != NULL) {
-                Zone* z = dynamic_cast<Zone*>(entities[gx][gy]);
+            {
+                Zone* z = entities[gx][gy] ? dynamic_cast<Zone*>(entities[gx][gy]) : NULL;
                 if (z != NULL && z->isMultiTile) {
                     int rx = z->isSubTile ? z->rootX : gx;
                     int ry = z->isSubTile ? z->rootY : gy;
@@ -944,7 +1244,7 @@ void Play_Scene::renderDragPreview() {
                     }
                     continue;
                 }
-                bool canBulldoze = (entities[gx][gy]->getName() != "GrassTile");
+                bool canBulldoze = !isClearGroundName(tileKind(gx, gy));
                 sf::Color fillCol = canBulldoze ? sf::Color(231, 76, 60, 130) : sf::Color(120, 120, 120, 60);
                 sf::Color outCol = canBulldoze ? sf::Color(231, 76, 60, 245) : sf::Color(140, 140, 140, 150);
                 highlightTile(gx, gy, fillCol, outCol);
@@ -958,9 +1258,10 @@ void Play_Scene::renderDragPreview() {
     int gy = isDragging ? dragCurrent.y : tileY;
 
     if (gx >= 1 && gx + 1 < tileMapW && gy >= 0 && gy + 1 < tileMapH) {
-        if (entities[gx][gy] != NULL && entities[gx][gy]->position != NULL) {
-            float px = entities[gx][gy]->position->x;
-            float py = entities[gx][gy]->position->y;
+        {
+            sf::Vector2f tp = tileScreenPos(gx, gy);
+            float px = tp.x;
+            float py = tp.y;
 
             std::string reason = "";
             bool ok = canPlaceTile(gx, gy, tool, &reason);
@@ -1142,6 +1443,23 @@ void Play_Scene::renderHUD(float deltaTime) {
     happyText.setPosition(780.f, 15.f);
     _window.draw(happyText);
 
+    // World overlay & seed
+    sf::Text overlayText;
+    overlayText.setFont(font);
+    overlayText.setCharacterSize(12);
+    overlayText.setFillColor(overlayMode == 0 ? sf::Color(140, 155, 170) : sf::Color(26, 188, 156));
+    overlayText.setString("View [O]: " + getOverlayName());
+    overlayText.setPosition(930.f, 7.f);
+    _window.draw(overlayText);
+
+    sf::Text seedText;
+    seedText.setFont(font);
+    seedText.setCharacterSize(11);
+    seedText.setFillColor(sf::Color(120, 135, 150));
+    seedText.setString("Seed: " + std::to_string(worldSeed));
+    seedText.setPosition(930.f, 26.f);
+    _window.draw(seedText);
+
     // FPS badge
     sf::Text fpsText;
     fpsText.setFont(font);
@@ -1155,16 +1473,17 @@ void Play_Scene::renderHUD(float deltaTime) {
     // 2. TheoTown Building Inspection & Query Card (Inspect Mode)
     // -------------------------------------------------------------
     if (toolbar.getActiveTool() == TOOL_NONE && tileX >= 0 && tileX < tileMapW && tileY >= 0 && tileY < tileMapH) {
-        if (entities[tileX][tileY] != NULL) {
-            Zone* z = dynamic_cast<Zone*>(entities[tileX][tileY]);
+        {
+            bool natural = (entities[tileX][tileY] == NULL);
+            Zone* z = natural ? NULL : dynamic_cast<Zone*>(entities[tileX][tileY]);
             Zone* mz = z;
             if (z != NULL && z->isSubTile && z->rootX >= 0 && z->rootY >= 0) {
                 mz = dynamic_cast<Zone*>(entities[z->rootX][z->rootY]);
             }
 
-            if (mz != NULL) {
-                float cardW = 340.f;
-                float cardH = 220.f;
+            if (mz != NULL || natural) {
+                float cardW = 360.f;
+                float cardH = 240.f;
                 float cardX = static_cast<float>(WINDOW_W) - cardW - 20.f;
                 float cardY = 60.f;
 
@@ -1175,11 +1494,22 @@ void Play_Scene::renderHUD(float deltaTime) {
                 card.setOutlineThickness(2.f);
                 _window.draw(card);
 
-                std::string headerTitle = mz->getName();
-                std::string subTitle = mz->isMultiTile ? "2x2 Building Complex" : "1x1 Structure";
-                std::string tierDesc = "Tier " + std::to_string(mz->tier);
+                std::string headerTitle;
+                std::string subTitle;
+                std::string tierDesc;
 
-                if (mz->getName() == "ResidentalZone") {
+                if (natural) {
+                    headerTitle = isClearGroundName(tileKind(tileX, tileY)) ? "OPEN LAND" : "NATURAL FEATURE";
+                    subTitle = "Natural Terrain";
+                } else {
+                    headerTitle = mz->getName();
+                    subTitle = mz->isMultiTile ? "2x2 Building Complex" : "1x1 Structure";
+                    tierDesc = "Tier " + std::to_string(mz->tier);
+                }
+
+                if (natural) {
+                    // no building details
+                } else if (mz->getName() == "ResidentalZone") {
                     headerTitle = "RESIDENTIAL COMPLEX";
                     tierDesc += " * " + dynamic_cast<ResidentalZone*>(mz)->getVariantName();
                 } else if (mz->getName() == "CommericalZone") {
@@ -1190,8 +1520,16 @@ void Play_Scene::renderHUD(float deltaTime) {
                     tierDesc += " * " + dynamic_cast<IndustrialZone*>(mz)->getVariantName();
                 } else if (mz->getName() == "FarmZone") {
                     headerTitle = "AGRICULTURAL FARM";
-                    tierDesc = dynamic_cast<FarmZone*>(mz)->getVariantName();
+                    FarmZone* fz = dynamic_cast<FarmZone*>(mz);
+                    char mulBuf[16];
+                    std::snprintf(mulBuf, sizeof(mulBuf), "%.2f", fz->fertilityMul);
+                    tierDesc = fz->getVariantName() + " * Soil x" + mulBuf;
                 }
+
+                const TileData& land = world[tileX][tileY];
+                std::string landLine = "Land:        " + terrainName(land.terrain) + " | Soil: " + std::to_string(land.fertility) + "%\n";
+                landLine += "Underground: Water " + std::to_string(land.groundwater) + "% | " + depositName(land.deposit);
+                if (land.deposit != Deposit::None) landLine += " (" + std::to_string(land.depositAmount) + "%)";
 
                 sf::Text cardTitle;
                 cardTitle.setFont(font);
@@ -1215,14 +1553,15 @@ void Play_Scene::renderHUD(float deltaTime) {
                 div.setFillColor(sf::Color(45, 60, 80));
                 _window.draw(div);
 
-                std::string infoBody =
+                std::string infoBody = natural ? landLine :
                     "Designation: " + tierDesc + "\n"
                     "Footprint:   " + (mz->isMultiTile ? "2x2 Tiles" : "1x1 Tile") + "\n"
                     "Capacity:    " + std::to_string(mz->capacity) + " | Occupants: " + std::to_string(mz->population) + "\n"
                     "Tax Yield:   $" + std::to_string(mz->zoneIncome) + " / cycle\n"
                     "Road Status: " + (mz->isActive ? "Connected [Active]" : "No Road Access") + "\n"
                     "Local Happy: " + std::to_string(mz->overallHappiness) + "%\n"
-                    "Services:    Edu: " + std::to_string(townStats[2]) + "% | Health: " + std::to_string(townStats[4]) + "%";
+                    "Services:    Edu: " + std::to_string(townStats[2]) + "% | Health: " + std::to_string(townStats[4]) + "%\n" +
+                    landLine;
 
                 sf::Text cardBody;
                 cardBody.setFont(font);
@@ -1240,6 +1579,7 @@ void Play_Scene::renderHUD(float deltaTime) {
     // -------------------------------------------------------------
     sf::Vector2i mousePixel = sf::Mouse::getPosition(_window);
     sf::Vector2f mousePixelF(static_cast<float>(mousePixel.x), static_cast<float>(mousePixel.y));
+    renderViewPanel(font, mousePixelF);
     toolbar.draw(_window, font, mousePixelF);
 }
 
@@ -1261,229 +1601,4 @@ void Play_Scene::populateCity() {
         townPopulation[i] += populationInc;
         townDemand[i] -= populationInc;
     }
-}
-
-void Play_Scene::buildTestWorld() {
-    auto setRoad = [&](int x, int y) {
-        if (x >= 0 && x < tileMapW && y >= 0 && y < tileMapH) {
-            delete entities[x][y];
-            entities[x][y] = new DirtRoad(x, y);
-        }
-    };
-
-    auto set2x2 = [&](int rx, int ry, BuildTool tool, int tier = 1, int variant = 1) {
-        if (rx < 1 || rx + 1 >= tileMapW || ry < 0 || ry + 1 >= tileMapH) return;
-        const sf::Vector2i dOffsets[4] = {{0, 0}, {1, 0}, {-1, 1}, {0, 1}};
-        // Never overwrite existing road infrastructure
-        for (int k = 0; k < 4; k++) {
-            int cx = rx + dOffsets[k].x;
-            int cy = ry + dOffsets[k].y;
-            if (entities[cx][cy] != NULL && entities[cx][cy]->getName() == "DirtRoad") {
-                return;
-            }
-        }
-        for (int k = 0; k < 4; k++) {
-            int cx = rx + dOffsets[k].x;
-            int cy = ry + dOffsets[k].y;
-            delete entities[cx][cy];
-            entities[cx][cy] = NULL;
-        }
-        Zone* mz = NULL;
-        std::string baseTex = "grass";
-        std::string typeName = "";
-        if (tool == TOOL_RES_COTTAGES || tool == TOOL_RES_APARTMENTS || tool == TOOL_RES_TOWER || tool == TOOL_RESIDENTIAL) {
-            mz = new ResidentalZone(rx, ry, tier, variant);
-            baseTex = "zone_residental";
-            typeName = "ResidentalZone";
-        } else if (tool == TOOL_COM_GROCERY || tool == TOOL_COM_PLAZA || tool == TOOL_COM_TOWER || tool == TOOL_COMMERCIAL) {
-            mz = new CommericalZone(rx, ry, tier, variant);
-            baseTex = "zone_commercial";
-            typeName = "CommericalZone";
-        } else if (tool == TOOL_IND_WORKSHOP || tool == TOOL_IND_FACTORY || tool == TOOL_IND_TECH || tool == TOOL_INDUSTRIAL) {
-            mz = new IndustrialZone(rx, ry, tier, variant);
-            baseTex = "zone_industrial";
-            typeName = "IndustrialZone";
-        } else if (tool == TOOL_FARM_BARN || tool == TOOL_FARM_WINDMILL || tool == TOOL_FARM) {
-            mz = new FarmZone(rx, ry, variant);
-            baseTex = "zone_farm";
-            typeName = "FarmZone";
-        } else if (tool == TOOL_SCHOOL) {
-            mz = new SchoolZone(rx, ry);
-            typeName = "SchoolZone";
-        } else if (tool == TOOL_CHURCH) {
-            mz = new ChurchZone(rx, ry);
-            typeName = "ChurchZone";
-        } else if (tool == TOOL_PARK) {
-            mz = new ParkZone(rx, ry);
-            typeName = "ParkZone";
-        } else if (tool == TOOL_HARBOUR) {
-            mz = new HarbourZone(rx, ry);
-            typeName = "HarbourZone";
-        }
-
-        if (mz != NULL) {
-            entities[rx][ry] = mz;
-            entities[rx + 1][ry]     = new SubZone(rx + 1, ry,     rx, ry, typeName, baseTex);
-            entities[rx - 1][ry + 1] = new SubZone(rx - 1, ry + 1, rx, ry, typeName, baseTex);
-            entities[rx][ry + 1]     = new SubZone(rx,     ry + 1, rx, ry, typeName, baseTex);
-        }
-    };
-
-    // 1. 1x1 Roads Network Across 64x64 Metropolis (100% Flush Edge-Sharing)
-    // 8 Major Horizontal Avenues (Axis 1: East / Down-Right along +X)
-    for (int x = 2; x <= 61; x++) {
-        setRoad(x, 4);   // North Suburb Boulevard
-        setRoad(x, 10);  // North Urban Avenue
-        setRoad(x, 16);  // Highrise Civic Expressway
-        setRoad(x, 22);  // Downtown Metro Boulevard
-        setRoad(x, 28);  // Commercial Midtown Avenue
-        setRoad(x, 34);  // Concourse Parkway
-        setRoad(x, 40);  // Industrial Arterial
-        setRoad(x, 48);  // South Ocean Coastal Highway
-    }
-
-    // 8 Major Edge-Sharing Cross-Boulevards (Axis 2: South-West / Down-Left along x + y = S)
-    // Every consecutive road tile shares a full 32x16 edge with (x-1, y+1) with ZERO diamond tip seams!
-    const int crossBoulevards[] = {24, 36, 48, 60, 72, 84, 96, 108};
-    for (int S : crossBoulevards) {
-        for (int y = 2; y <= 48; y++) {
-            int x = S - y;
-            if (x >= 2 && x <= 61) {
-                setRoad(x, y);
-            }
-        }
-    }
-
-    // 2. District 1 (y = 2): Northern Residential Cottages & Bungalows (Touches Avenue at y = 4)
-    for (int x = 4; x <= 58; x += 2) {
-        if (x % 8 == 0) {
-            set2x2(x, 2, TOOL_PARK);
-        } else if (x % 8 == 2) {
-            set2x2(x, 2, TOOL_CHURCH);
-        } else if (x % 4 == 0) {
-            set2x2(x, 2, TOOL_RES_COTTAGES, 1, 2); // Bungalow Homestead
-        } else {
-            set2x2(x, 2, TOOL_RES_COTTAGES, 1, 1); // Suburban Cottages
-        }
-    }
-
-    // 3. District 2 (y = 8): Residential Brownstones & Urban Condominiums (Touches Avenue at y = 10)
-    for (int x = 4; x <= 58; x += 2) {
-        if (x % 12 == 0) {
-            set2x2(x, 8, TOOL_SCHOOL);
-        } else if (x % 8 == 0) {
-            set2x2(x, 8, TOOL_PARK);
-        } else if (x % 4 == 0) {
-            set2x2(x, 8, TOOL_RES_APARTMENTS, 2, 2); // Urban Condominiums
-        } else {
-            set2x2(x, 8, TOOL_RES_APARTMENTS, 2, 1); // Brick Brownstones
-        }
-    }
-
-    // 4. District 3 (y = 14): Highrise Luxury Towers & Sky-Plazas (Touches Avenue at y = 16)
-    for (int x = 4; x <= 58; x += 2) {
-        if (x % 12 == 4) {
-            set2x2(x, 14, TOOL_PARK);
-        } else if (x % 8 == 0) {
-            set2x2(x, 14, TOOL_CHURCH);
-        } else if (x % 4 == 0) {
-            set2x2(x, 14, TOOL_RES_TOWER, 3, 2); // Twin Highrise Plaza
-        } else {
-            set2x2(x, 14, TOOL_RES_TOWER, 3, 1); // Highrise Luxury Tower
-        }
-    }
-
-    // 5. District 4 (y = 20): Downtown Corporate Banking Highrises & Financial Towers (Touches Avenue at y = 22)
-    for (int x = 4; x <= 58; x += 2) {
-        if (x % 12 == 0) {
-            set2x2(x, 20, TOOL_PARK);
-        } else if (x % 8 == 0) {
-            set2x2(x, 20, TOOL_SCHOOL);
-        } else if (x % 4 == 0) {
-            set2x2(x, 20, TOOL_COM_TOWER, 3, 2); // International Financial Center
-        } else {
-            set2x2(x, 20, TOOL_COM_TOWER, 3, 1); // Corporate Banking Highrise
-        }
-    }
-
-    // 6. District 5 (y = 26): Shopping Plazas, Diners, Groceries, & Retail Arcades (Touches Avenue at y = 28)
-    for (int x = 4; x <= 58; x += 2) {
-        if (x % 12 == 6) {
-            set2x2(x, 26, TOOL_PARK);
-        } else if (x % 8 == 4) {
-            set2x2(x, 26, TOOL_COM_GROCERY, 1, 2); // Local Diner & Mini Mart
-        } else if (x % 8 == 0) {
-            set2x2(x, 26, TOOL_COM_GROCERY, 1, 1); // Corner Grocery & Bakery
-        } else if (x % 4 == 0) {
-            set2x2(x, 26, TOOL_COM_PLAZA, 2, 2);   // Department Store Arcade
-        } else {
-            set2x2(x, 26, TOOL_COM_PLAZA, 2, 1);   // Shopping Plaza Arcade
-        }
-    }
-
-    // 7. District 6 (y = 32): West Farmlands & East Industrial Manufacturing (Touches Avenue at y = 34)
-    for (int x = 4; x <= 58; x += 2) {
-        if (x < 26) {
-            // West Agriculture
-            if (x % 4 == 0) {
-                set2x2(x, 32, TOOL_FARM_WINDMILL, 1, 2); // Windmill Homestead
-            } else {
-                set2x2(x, 32, TOOL_FARM_BARN, 1, 1);     // Barn & Wheat Silo
-            }
-        } else {
-            // East Industry (T1 Workshops & T2 Manufacturing)
-            if (x % 8 == 0) {
-                set2x2(x, 32, TOOL_IND_FACTORY, 2, 2);   // Heavy Machine Assembly
-            } else if (x % 6 == 0) {
-                set2x2(x, 32, TOOL_IND_FACTORY, 2, 1);   // Manufacturing Plant
-            } else if (x % 4 == 0) {
-                set2x2(x, 32, TOOL_IND_WORKSHOP, 1, 2);  // Warehouse Depot
-            } else {
-                set2x2(x, 32, TOOL_IND_WORKSHOP, 1, 1);  // Scrap Workshop & Foundry
-            }
-        }
-    }
-
-    // 8. District 7 (y = 38): West Windmill Homesteads & East Robotics / Clean-Fab Hubs (Touches Avenue at y = 40)
-    for (int x = 4; x <= 58; x += 2) {
-        if (x < 26) {
-            if (x % 4 == 0) {
-                set2x2(x, 38, TOOL_FARM_WINDMILL, 1, 2);
-            } else {
-                set2x2(x, 38, TOOL_FARM_BARN, 1, 1);
-            }
-        } else {
-            if (x % 4 == 0) {
-                set2x2(x, 38, TOOL_IND_TECH, 3, 2);      // Robotics Automation Facility
-            } else {
-                set2x2(x, 38, TOOL_IND_TECH, 3, 1);      // Microchip Clean-Fab Hub
-            }
-        }
-    }
-
-    // 9. District 8 (y = 49): Shoreline Harbours & Deep Ocean Water
-    for (int x = 2; x < tileMapW; x++) {
-        for (int y = 51; y < tileMapH; y++) {
-            delete entities[x][y];
-            entities[x][y] = new WaterTile(x, y);
-        }
-    }
-
-    // 14 Trade Harbours side-by-side along the coastal avenue
-    for (int hx = 4; hx <= 56; hx += 4) {
-        set2x2(hx, 49, TOOL_HARBOUR);
-    }
-
-    // 8. Connect and autotile all roads
-    for (int i = 0; i < tileMapW; i++) {
-        for (int j = 0; j < tileMapH; j++) {
-            if (entities[i][j] != NULL && entities[i][j]->getName() == "DirtRoad") {
-                DirtRoad* r = dynamic_cast<DirtRoad*>(entities[i][j]);
-                if (r != NULL) r->check();
-            }
-        }
-    }
-
-    // Run initial happiness simulation pass to establish coverage
-    happinessSystem.updateSimulation();
 }

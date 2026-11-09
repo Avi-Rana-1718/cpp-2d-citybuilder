@@ -5,13 +5,11 @@
 #include "../src/_global.hpp"
 #include "../src/Entity.hpp"
 #include "../game/entities/_Zone.hpp"
-#include "../game/entities/GlassTile.hpp"
 #include "../game/entities/ResidentalZone.hpp"
 #include "../game/entities/CommericalZone.hpp"
 #include "../game/entities/IndustrialZone.hpp"
 #include "../game/entities/FarmZone.hpp"
 #include "../game/entities/HarbourZone.hpp"
-#include "../game/entities/WaterTile.hpp"
 #include "../game/entities/SchoolZone.hpp"
 #include "../game/entities/ChurchZone.hpp"
 #include "../game/entities/ParkZone.hpp"
@@ -20,6 +18,9 @@
 #include "../game/simulation/HappinessSystem.hpp"
 #include "../game/ui/Toolbar.hpp"
 #include "../game/scenes/Play_Scene.hpp"
+#include "../game/world/WorldData.hpp"
+#include "../game/world/WorldGen.hpp"
+#include "../game/world/GroundRenderer.hpp"
 
 // RAII helper to silence stdout logs from entity constructors/destructors during tests
 struct ScopedCoutSilence {
@@ -32,10 +33,11 @@ struct ScopedCoutSilence {
 // Helper to clear the grid before/after tests
 static void clearTestGrid() {
     ScopedCoutSilence silence;
+    resetWorldData();
     for (int i = 0; i < tileMapW; i++) {
         for (int j = 0; j < tileMapH; j++) {
             delete entities[i][j];
-            entities[i][j] = new GrassTile(i, j);
+            entities[i][j] = NULL;
         }
     }
 }
@@ -52,10 +54,9 @@ TEST_CASE(Test_IsometricProjection_Formula) {
     ASSERT_EQ(expectedX, 128.0f); // 64 * 4 - 4 * 32 = 128
     ASSERT_EQ(expectedY, 256.0f); // 32 * 6 + 4 * 16 = 192 + 64 = 256
 
-    ScopedCoutSilence silence;
-    GrassTile tile(posX, posY);
-    ASSERT_NEAR(tile.position->x, expectedX, 0.001f);
-    ASSERT_NEAR(tile.position->y, expectedY, 0.001f);
+    sf::Vector2f tp = tileScreenPos(posX, posY);
+    ASSERT_NEAR(tp.x, expectedX, 0.001f);
+    ASSERT_NEAR(tp.y, expectedY, 0.001f);
 }
 
 TEST_CASE(Test_IsometricRaycasting_DiamondCenter) {
@@ -258,36 +259,124 @@ TEST_CASE(Test_Zone_AdjacencyActivationRules) {
     rz->checkValid();
     ASSERT_FALSE(rz->isActive);
 
-    // Place adjacent DirtRoad at (5, 6)
-    delete entities[5][6];
-    entities[5][6] = new DirtRoad(5, 6);
+    // A road only touching the footprint at a diamond tip (0, +2) does not count
+    entities[5][7] = new DirtRoad(5, 7);
+    rz->checkValid();
+    ASSERT_FALSE(rz->isActive);
+    delete entities[5][7]; entities[5][7] = NULL;
 
-    // Now zone must activate
+    // Nor does the box corner (+2, +2), which does not touch the building at all
+    entities[7][7] = new DirtRoad(7, 7);
+    rz->checkValid();
+    ASSERT_FALSE(rz->isActive);
+    delete entities[7][7]; entities[7][7] = NULL;
+
+    // Every edge-sharing border tile activates the zone
+    for (const auto& o : BORDER_2X2) {
+        int bx = 5 + o[0], by = 5 + o[1];
+        entities[bx][by] = new DirtRoad(bx, by);
+        rz->checkValid();
+        ASSERT_TRUE(rz->isActive);
+        delete entities[bx][by]; entities[bx][by] = NULL;
+    }
+
+    // Road at (4, 5) shares the west edge
+    entities[4][5] = new DirtRoad(4, 5);
     rz->checkValid();
     ASSERT_TRUE(rz->isActive);
 
-    // Remove the road (revert to grass)
-    delete entities[5][6];
-    entities[5][6] = new GrassTile(5, 6);
-
-    // Zone must deactivate when road is removed
+    // Removing it deactivates the zone
+    delete entities[4][5];
+    entities[4][5] = NULL;
     rz->checkValid();
     ASSERT_FALSE(rz->isActive);
 
-    // Now test chained activation:
-    // Place road again -> rz becomes active
-    delete entities[5][6];
-    entities[5][6] = new DirtRoad(5, 6);
+    // No chaining: a zone touching only an active residential zone stays inactive
+    entities[4][5] = new DirtRoad(4, 5);
     rz->checkValid();
     ASSERT_TRUE(rz->isActive);
-
-    // Place second residential zone at (5, 4) adjacent to active (5, 5)
-    delete entities[5][4];
-    ResidentalZone* rz2 = new ResidentalZone(5, 4);
-    entities[5][4] = rz2;
+    ResidentalZone* rz2 = new ResidentalZone(7, 5); // shares an edge with rz, not with the road
+    entities[7][5] = rz2;
     rz2->checkValid();
-    ASSERT_TRUE(rz2->isActive);
+    ASSERT_FALSE(rz2->isActive);
 
+    clearTestGrid();
+}
+
+TEST_CASE(Test_Zone_RoadAccessUpdatesOnChange) {
+    clearTestGrid();
+    ScopedCoutSilence silence;
+    Play_Scene scene;
+    money = 50000;
+
+    // Placement and activation use the same edge-sharing rule:
+    // a road at (10, 12) only touches the lot at (10, 10) at a diamond tip
+    scene.placeTile(10, 12, TOOL_ROAD);
+    std::string reason;
+    ASSERT_FALSE(scene.canPlaceTile(10, 10, TOOL_RES_COTTAGES, &reason));
+    ASSERT_TRUE(reason.find("Requires Road Connection") != std::string::npos);
+
+    // Road on the west edge (9, 10): placement allowed, building active immediately
+    scene.placeTile(9, 10, TOOL_ROAD);
+    ASSERT_TRUE(scene.canPlaceTile(10, 10, TOOL_RES_COTTAGES));
+    scene.placeTile(10, 10, TOOL_RES_COTTAGES);
+    Zone* home = dynamic_cast<Zone*>(entities[10][10]);
+    ASSERT_TRUE(home != NULL);
+    ASSERT_TRUE(home->isActive);
+
+    // Bulldozing that road disconnects it without any update() call
+    scene.placeTile(9, 10, TOOL_BULLDOZE);
+    ASSERT_FALSE(home->isActive);
+
+    // Building a road on another border tile (12, 10) reconnects it
+    scene.placeTile(12, 10, TOOL_ROAD);
+    ASSERT_TRUE(home->isActive);
+
+    // update() no longer re-checks: a road removed behind the scene's back is not noticed
+    delete entities[12][10]; entities[12][10] = NULL;
+    home->update(0.016f);
+    ASSERT_TRUE(home->isActive);
+
+    clearTestGrid();
+}
+
+TEST_CASE(Test_SimulationTick_DrivesBuildings) {
+    clearTestGrid();
+    ScopedCoutSilence silence;
+    Play_Scene scene;
+    money = 50000;
+
+    scene.placeTile(9, 10, TOOL_ROAD);
+    scene.placeTile(10, 10, TOOL_RES_COTTAGES);
+    Zone* home = dynamic_cast<Zone*>(entities[10][10]);
+    Zone* sub = dynamic_cast<Zone*>(entities[11][10]);
+    ASSERT_TRUE(home != NULL && home->isActive);
+    ASSERT_TRUE(sub != NULL && sub->isSubTile);
+    ASSERT_FALSE(sub->isActive); // sub-tiles sync on the next tick
+
+    // Per-frame update() no longer collects tax
+    day = 1;
+    townTaxes[0] = 10;
+    home->taxPaid = false;
+    money = 1000;
+    home->update(0.016f);
+    ASSERT_EQ(money, 1000);
+
+    // One simulation tick collects it once and syncs the sub-tiles
+    scene.runSimulationTick();
+    ASSERT_TRUE(money > 1000);
+    ASSERT_TRUE(home->taxPaid);
+    ASSERT_TRUE(sub->isActive);
+    int afterFirst = money;
+    scene.runSimulationTick();
+    ASSERT_EQ(money, afterFirst);
+
+    // Next day resets the flag, so the following tax day pays again
+    day = 2;
+    scene.runSimulationTick();
+    ASSERT_FALSE(home->taxPaid);
+
+    money = 5000;
     clearTestGrid();
 }
 
@@ -450,6 +539,36 @@ TEST_CASE(Test_Roads_AutotilingLogic) {
     clearTestGrid();
 }
 
+TEST_CASE(Test_Roads_NeighboursRetileOnChange) {
+    clearTestGrid();
+    ScopedCoutSilence silence;
+    Play_Scene scene;
+    money = 5000;
+
+    // A lone road is a plain end cap (no rotation)
+    scene.placeTile(10, 10, TOOL_ROAD);
+    DirtRoad* a = dynamic_cast<DirtRoad*>(entities[10][10]);
+    ASSERT_TRUE(a != NULL);
+    ASSERT_NEAR(a->sprite->getRotation(), 0.f, 0.01f);
+
+    // Building a road to its left re-tiles the existing road (left-only cap is rotated 180)
+    scene.placeTile(9, 10, TOOL_ROAD);
+    ASSERT_NEAR(a->sprite->getRotation(), 180.f, 0.01f);
+
+    // update() no longer re-tiles: a road appearing without placeTile is not picked up
+    delete entities[11][10]; entities[11][10] = new DirtRoad(11, 10);
+    a->update(0.016f);
+    ASSERT_NEAR(a->sprite->getRotation(), 180.f, 0.01f);
+    delete entities[11][10]; entities[11][10] = NULL;
+
+    // Bulldozing the neighbour re-tiles the survivor back to a plain cap
+    scene.placeTile(9, 10, TOOL_BULLDOZE);
+    ASSERT_TRUE(entities[9][10] == NULL);
+    ASSERT_NEAR(a->sprite->getRotation(), 0.f, 0.01f);
+
+    clearTestGrid();
+}
+
 // -------------------------------------------------------------
 // 9. Industrial & Agriculture Zone Lifecycle Tests
 // -------------------------------------------------------------
@@ -467,8 +586,8 @@ TEST_CASE(Test_IndustrialZone_LifecycleAndTiers) {
     int initialCap = ind->capacity;
 
     // Connect to road
-    delete entities[3][4];
-    entities[3][4] = new DirtRoad(3, 4);
+    delete entities[2][3];
+    entities[2][3] = new DirtRoad(2, 3);
     ind->checkValid();
     ASSERT_TRUE(ind->isActive);
 
@@ -484,7 +603,7 @@ TEST_CASE(Test_IndustrialZone_LifecycleAndTiers) {
 
     // Demolish and verify capacity deduction
     delete entities[3][3];
-    entities[3][3] = new GrassTile(3, 3);
+    entities[3][3] = NULL;
     ASSERT_EQ(townCapacity[2], 0);
 
     clearTestGrid();
@@ -506,8 +625,8 @@ TEST_CASE(Test_FarmZone_RoadActivationAndTaxes) {
     ASSERT_FALSE(farm->isActive);
 
     // Add adjacent dirt road
-    delete entities[4][5];
-    entities[4][5] = new DirtRoad(4, 5);
+    delete entities[3][4];
+    entities[3][4] = new DirtRoad(3, 4);
     farm->checkValid();
     ASSERT_TRUE(farm->isActive);
 
@@ -538,15 +657,19 @@ TEST_CASE(Test_HarbourZone_WaterAdjacency) {
     ASSERT_EQ(harbour->getName(), "HarbourZone");
     ASSERT_FALSE(harbour->isActive);
 
-    // Add adjacent water tile
-    delete entities[2][3];
-    entities[2][3] = new WaterTile(2, 3);
+    // Water on the east edge alone is not enough: a harbour also needs a road
+    world[4][2].terrain = Terrain::Water;
+    harbour->checkValid();
+    ASSERT_FALSE(harbour->isActive);
+
+    // Road on the west edge completes it
+    entities[1][2] = new DirtRoad(1, 2);
     harbour->checkValid();
     ASSERT_TRUE(harbour->isActive);
 
     // Clean up
     delete entities[2][2];
-    entities[2][2] = new GrassTile(2, 2);
+    entities[2][2] = NULL;
     ASSERT_EQ(townCapacity[1], 0);
 
     clearTestGrid();
@@ -617,9 +740,9 @@ TEST_CASE(Test_HappinessSystem_ScoringAndTierProgression) {
 
     HappinessSystem happySys;
 
-    // Setup active road and residential zone
-    delete entities[5][5];
-    entities[5][5] = new DirtRoad(5, 5);
+    // Setup active road (west edge) and residential zone
+    delete entities[4][6];
+    entities[4][6] = new DirtRoad(4, 6);
 
     delete entities[5][6];
     ResidentalZone* rz = new ResidentalZone(5, 6);
@@ -829,12 +952,13 @@ TEST_CASE(Test_Demolition_RestoresGrassTile) {
         int cx = rootX + dOffsets[k].x;
         int cy = rootY + dOffsets[k].y;
         delete entities[cx][cy];
-        entities[cx][cy] = new GrassTile(cx, cy);
+        entities[cx][cy] = NULL;
     }
 
-    // Verify all 4 tiles are restored to GrassTile
+    // Verify all 4 tiles are back to natural grass (empty structure slot)
     for (int k = 0; k < 4; k++) {
-        ASSERT_EQ(entities[rx + dOffsets[k].x][ry + dOffsets[k].y]->getName(), "GrassTile");
+        ASSERT_TRUE(entities[rx + dOffsets[k].x][ry + dOffsets[k].y] == NULL);
+        ASSERT_EQ(tileKind(rx + dOffsets[k].x, ry + dOffsets[k].y), "Grass");
     }
 
     clearTestGrid();
@@ -863,7 +987,8 @@ TEST_CASE(Test_World_FullBuildingCoverage) {
     ASSERT_TRUE(rz->isActive);
 
     // Place water and adjacent Harbour
-    delete entities[10][2]; entities[10][2] = new WaterTile(10, 2);
+    world[10][1].terrain = Terrain::Water;           // east edge (+2, 0)
+    entities[7][1] = new DirtRoad(7, 1);              // west edge (-1, 0)
     int hx = 8, hy = 1;
     for (int k = 0; k < 4; k++) {
         delete entities[hx + dOffsets[k].x][hy + dOffsets[k].y];
@@ -919,7 +1044,7 @@ TEST_CASE(Test_TheoTown_CannotBuildOnWater) {
 
     // Place water at (6, 6)
     delete entities[6][6];
-    entities[6][6] = new WaterTile(6, 6);
+    entities[6][6] = NULL; world[6][6].terrain = Terrain::Water;
 
     // Try to place a 2x2 building at (6, 5) whose bottom diamond tile lands on (6, 6)
     std::string reason = "";
@@ -979,7 +1104,7 @@ TEST_CASE(Test_TheoTown_HarbourShorelineRules) {
 
     // 2. Now place water at (7, 5) on the opposite perimeter
     delete entities[7][5];
-    entities[7][5] = new WaterTile(7, 5);
+    entities[7][5] = NULL; world[7][5].terrain = Terrain::Water;
 
     // Now harbour touches road at (4, 5) and touches water at (7, 5) -> Valid shoreline!
     reason = "";
@@ -1020,6 +1145,354 @@ TEST_CASE(Test_TheoTown_InsufficientFundsAndBulldoze) {
     bool canBulldozeRoad = scene.canPlaceTile(4, 5, TOOL_BULLDOZE, &reason);
     ASSERT_TRUE(canBulldozeRoad);
 
+    clearTestGrid();
+}
+
+// -------------------------------------------------------------
+// 15. Procedural World Generation Tests
+// -------------------------------------------------------------
+static int countTerrain(Terrain t) {
+    int n = 0;
+    for (int i = 0; i < tileMapW; i++)
+        for (int j = 0; j < tileMapH; j++)
+            if (world[i][j].terrain == t) n++;
+    return n;
+}
+
+static int countDeposit(Deposit d) {
+    int n = 0;
+    for (int i = 0; i < tileMapW; i++)
+        for (int j = 0; j < tileMapH; j++)
+            if (world[i][j].deposit == d) n++;
+    return n;
+}
+
+TEST_CASE(Test_WorldGen_Deterministic) {
+    generateWorld(12345u);
+    static TileData snapshot[tileMapW][tileMapH];
+    int spawnX = worldSpawnX, spawnY = worldSpawnY;
+    for (int i = 0; i < tileMapW; i++)
+        for (int j = 0; j < tileMapH; j++) snapshot[i][j] = world[i][j];
+
+    // Same seed -> identical world, even if std::rand state changes in between
+    std::srand(999);
+    std::rand();
+    generateWorld(12345u);
+    bool identical = (spawnX == worldSpawnX && spawnY == worldSpawnY);
+    for (int i = 0; i < tileMapW && identical; i++) {
+        for (int j = 0; j < tileMapH; j++) {
+            const TileData& a = snapshot[i][j];
+            const TileData& b = world[i][j];
+            if (a.terrain != b.terrain || a.fertility != b.fertility || a.groundwater != b.groundwater ||
+                a.deposit != b.deposit || a.depositAmount != b.depositAmount) {
+                identical = false;
+                break;
+            }
+        }
+    }
+    ASSERT_TRUE(identical);
+
+    // Different seed -> different terrain
+    generateWorld(54321u);
+    int diffs = 0;
+    for (int i = 0; i < tileMapW; i++)
+        for (int j = 0; j < tileMapH; j++)
+            if (snapshot[i][j].terrain != world[i][j].terrain) diffs++;
+    ASSERT_TRUE(diffs > 100);
+
+    resetWorldData();
+}
+
+TEST_CASE(Test_WorldGen_TerrainMix) {
+    const uint32_t seeds[5] = {1u, 42u, 777u, 2026u, 31337u};
+    const int total = tileMapW * tileMapH;
+    for (uint32_t seed : seeds) {
+        generateWorld(seed);
+        int water = countTerrain(Terrain::Water);
+        ASSERT_TRUE(water >= total * 10 / 100);
+        ASSERT_TRUE(water <= total * 45 / 100);
+        ASSERT_TRUE(countTerrain(Terrain::Forest) > 0);
+        ASSERT_TRUE(countTerrain(Terrain::Rock) > 0);
+        ASSERT_TRUE(countTerrain(Terrain::Sand) > 0);
+        ASSERT_TRUE(countTerrain(Terrain::Grass) > total / 4);
+        ASSERT_TRUE(countDeposit(Deposit::Coal) > 0);
+        ASSERT_TRUE(countDeposit(Deposit::Iron) > 0);
+        ASSERT_TRUE(countDeposit(Deposit::Stone) > 0);
+    }
+    resetWorldData();
+}
+
+TEST_CASE(Test_WorldGen_ForestPathsExist) {
+    // Paths are random walks, so check across several seeds rather than one
+    const uint32_t seeds[5] = {1u, 42u, 777u, 2026u, 31337u};
+    int withPaths = 0;
+    for (uint32_t seed : seeds) {
+        generateWorld(seed);
+        if (countTerrain(Terrain::ForestPath) > 0) withPaths++;
+    }
+    ASSERT_TRUE(withPaths >= 4);
+    resetWorldData();
+}
+
+TEST_CASE(Test_WorldGen_SpawnGuarantee) {
+    const uint32_t seeds[6] = {3u, 99u, 404u, 8080u, 65535u, 123456789u};
+    for (uint32_t seed : seeds) {
+        generateWorld(seed);
+        int sx = worldSpawnX, sy = worldSpawnY;
+
+        // 8x8 spawn area is entirely open grassland
+        bool allGrass = true;
+        for (int i = sx - 4; i < sx + 4; i++)
+            for (int j = sy - 4; j < sy + 4; j++)
+                if (world[i][j].terrain != Terrain::Grass) allGrass = false;
+        ASSERT_TRUE(allGrass);
+
+        // Water reachable within 8 tiles (Manhattan) of the spawn centre
+        bool waterNear = false;
+        for (int i = sx - 8; i <= sx + 8 && !waterNear; i++)
+            for (int j = sy - 8; j <= sy + 8; j++)
+                if (inWorldBounds(i, j) && std::abs(i - sx) + std::abs(j - sy) <= 8 &&
+                    world[i][j].terrain == Terrain::Water) { waterNear = true; break; }
+        ASSERT_TRUE(waterNear);
+    }
+    resetWorldData();
+}
+
+TEST_CASE(Test_WorldGen_DataInvariants) {
+    generateWorld(2468u);
+    bool ok = true;
+    for (int i = 0; i < tileMapW; i++) {
+        for (int j = 0; j < tileMapH; j++) {
+            const TileData& t = world[i][j];
+            if (t.fertility > 100 || t.groundwater > 100 || t.depositAmount > 100) ok = false;
+            if (t.terrain == Terrain::Water && (t.fertility != 0 || t.groundwater != 0 || t.deposit != Deposit::None)) ok = false;
+            if ((t.terrain == Terrain::Sand || t.terrain == Terrain::Rock) && t.fertility != 0) ok = false;
+            if (t.deposit == Deposit::None && t.depositAmount != 0) ok = false;
+        }
+    }
+    ASSERT_TRUE(ok);
+    resetWorldData();
+}
+
+TEST_CASE(Test_WorldGen_NaturalGroundHasNoEntities) {
+    ScopedCoutSilence silence;
+    delete entities[3][3]; entities[3][3] = new DirtRoad(3, 3);
+    generateWorld(777u);
+    materializeWorld();
+
+    // Natural ground is data only: no entities, kind comes from world[][]
+    bool ok = true;
+    for (int i = 0; i < tileMapW; i++) {
+        for (int j = 0; j < tileMapH; j++) {
+            if (entities[i][j] != NULL) ok = false;
+            if (tileKind(i, j) != groundKindName(world[i][j].terrain)) ok = false;
+        }
+    }
+    ASSERT_TRUE(ok);
+
+    // A structure's name takes precedence over the ground under it
+    entities[3][3] = new DirtRoad(3, 3);
+    ASSERT_EQ(tileKind(3, 3), "DirtRoad");
+    ASSERT_EQ(tileKind(-1, 0), "");
+
+    clearTestGrid();
+}
+
+TEST_CASE(Test_VisibleTileRange_MatchesBruteForce) {
+    // Brute-force visibility, same rule as Play_Scene::renderWorld's isVisible
+    auto visible = [](int i, int j, float l, float r, float t, float b, float margin) {
+        sf::Vector2f p = tileScreenPos(i, j);
+        return p.x + tileSizeX >= l && p.x <= r && p.y + tileSizeY + margin >= t && p.y <= b;
+    };
+
+    const float centres[5][2] = {{1050.f, 1500.f}, {0.f, 0.f}, {2016.f, 2016.f}, {-3000.f, 500.f}, {1000.f, 3500.f}};
+    const float zooms[4] = {0.4f, 1.f, 2.f, 3.2f};
+    const float margins[2] = {0.f, 140.f};
+    bool complete = true, tight = true;
+
+    for (auto& c : centres) {
+        for (float z : zooms) {
+            for (float m : margins) {
+                float halfW = 750.f * z, halfH = 450.f * z;
+                float l = c[0] - halfW - 64.f, r = c[0] + halfW + 64.f;
+                float t = c[1] - halfH - 200.f, b = c[1] + halfH + 64.f;
+                VisibleTiles v = visibleTileRange(l, r, t, b, m);
+                for (int i = 0; i < tileMapW; i++) {
+                    for (int j = 0; j < tileMapH; j++) {
+                        bool inRange = v.contains(i, j);
+                        // Every visible tile must be in the range
+                        if (visible(i, j, l, r, t, b, m) && !inRange) complete = false;
+                        // The range may only over-include tiles within one tile of the view
+                        if (inRange && !visible(i, j, l - 64.f, r + 64.f, t - 64.f, b + 64.f, m)) tight = false;
+                    }
+                }
+            }
+        }
+    }
+    ASSERT_TRUE(complete);
+    ASSERT_TRUE(tight);
+
+    // A view entirely off the map yields no tiles
+    VisibleTiles off = visibleTileRange(-9000.f, -8000.f, -9000.f, -8000.f, 140.f);
+    ASSERT_TRUE(off.iMin > off.iMax);
+    ASSERT_FALSE(off.contains(0, 0));
+}
+
+TEST_CASE(Test_GroundRenderer_OneQuadPerTile) {
+    generateWorld(42u);
+    GroundRenderer gr;
+    ASSERT_TRUE(gr.isDirty());
+    gr.prepare();
+    ASSERT_FALSE(gr.isDirty());
+    ASSERT_EQ(static_cast<int>(gr.vertexCount()), tileMapW * tileMapH * 6);
+
+    // Terrain edits flag a rebuild
+    gr.markDirty();
+    ASSERT_TRUE(gr.isDirty());
+    gr.prepare();
+    ASSERT_FALSE(gr.isDirty());
+    resetWorldData();
+}
+
+TEST_CASE(Test_Placement_ForestAndRockBlock) {
+    clearTestGrid();
+    ScopedCoutSilence silence;
+    Play_Scene scene;
+    money = 5000;
+
+    // Road at (4,6) so the 2x2 lot at (5,4) would otherwise be valid
+    delete entities[4][6]; entities[4][6] = new DirtRoad(4, 6);
+
+    world[5][5].terrain = Terrain::Forest;
+
+    std::string reason;
+    ASSERT_FALSE(scene.canPlaceTile(5, 4, TOOL_RES_COTTAGES, &reason));
+    ASSERT_TRUE(reason.find("Forest") != std::string::npos);
+
+    reason = "";
+    ASSERT_FALSE(scene.canPlaceTile(5, 5, TOOL_ROAD, &reason));
+    ASSERT_TRUE(reason.find("Forest") != std::string::npos);
+
+    world[10][10].terrain = Terrain::Rock;
+    reason = "";
+    ASSERT_FALSE(scene.canPlaceTile(10, 10, TOOL_ROAD, &reason));
+    ASSERT_TRUE(reason.find("Rocky") != std::string::npos);
+
+    // Clearing forest costs $15 and leaves grassland
+    ASSERT_EQ(scene.getBulldozeCost(5, 5), 15);
+    ASSERT_EQ(scene.getBulldozeCost(10, 10), 60);
+    money = 1000;
+    ASSERT_TRUE(scene.canPlaceTile(5, 5, TOOL_BULLDOZE));
+    scene.placeTile(5, 5, TOOL_BULLDOZE);
+    ASSERT_EQ(money, 985);
+    ASSERT_TRUE(entities[5][5] == NULL);
+    ASSERT_TRUE(world[5][5].terrain == Terrain::Grass);
+    ASSERT_TRUE(scene.canPlaceTile(5, 4, TOOL_RES_COTTAGES, &reason));
+
+    // Sand and forest paths are buildable ground
+    world[20][20].terrain = Terrain::Sand;
+    ASSERT_TRUE(scene.canPlaceTile(20, 20, TOOL_ROAD));
+    world[21][20].terrain = Terrain::ForestPath;
+    ASSERT_TRUE(scene.canPlaceTile(21, 20, TOOL_ROAD));
+    reason = "";
+    ASSERT_FALSE(scene.canPlaceTile(20, 20, TOOL_BULLDOZE, &reason));
+    ASSERT_TRUE(reason.find("Already Clear Ground") != std::string::npos);
+
+    // Insufficient funds uses the terrain-specific bulldoze cost
+    money = 30;
+    reason = "";
+    ASSERT_FALSE(scene.canPlaceTile(10, 10, TOOL_BULLDOZE, &reason));
+    ASSERT_TRUE(reason.find("$60") != std::string::npos);
+
+    money = 5000;
+    clearTestGrid();
+}
+
+TEST_CASE(Test_Demolition_RestoresTerrainBase) {
+    clearTestGrid();
+    ScopedCoutSilence silence;
+
+    Play_Scene scene;
+    money = 5000;
+
+    world[6][6].terrain = Terrain::Sand;
+    world[7][6].terrain = Terrain::ForestPath;
+
+    // Roads may be built on sand and forest paths
+    scene.placeTile(6, 6, TOOL_ROAD);
+    scene.placeTile(7, 6, TOOL_ROAD);
+    ASSERT_EQ(entities[6][6]->getName(), "DirtRoad");
+    ASSERT_EQ(entities[7][6]->getName(), "DirtRoad");
+
+    // Demolishing restores the natural ground, not hardcoded grass
+    scene.placeTile(6, 6, TOOL_BULLDOZE);
+    scene.placeTile(7, 6, TOOL_BULLDOZE);
+    ASSERT_TRUE(entities[6][6] == NULL);
+    ASSERT_TRUE(entities[7][6] == NULL);
+    ASSERT_EQ(tileKind(6, 6), "Sand");
+    ASSERT_EQ(tileKind(7, 6), "ForestPath");
+
+    clearTestGrid();
+}
+
+TEST_CASE(Test_MapView_SelectorButtons) {
+    Play_Scene scene;
+
+    // Starts on the normal terrain view
+    ASSERT_EQ(scene.getOverlayMode(), 0);
+    ASSERT_EQ(scene.getOverlayName(), "Normal");
+
+    // Each panel button selects its view
+    const char* expected[4] = {"Normal", "Fertility", "Groundwater", "Deposits"};
+    for (int m = 3; m >= 0; m--) {
+        sf::FloatRect b = scene.viewButtonBounds(m);
+        sf::Vector2f centre(b.left + b.width / 2.f, b.top + b.height / 2.f);
+        ASSERT_TRUE(scene.viewPanelBounds().contains(centre));
+        ASSERT_TRUE(scene.handleViewPanelClick(centre));
+        ASSERT_EQ(scene.getOverlayMode(), m);
+        ASSERT_EQ(scene.getOverlayName(), std::string(expected[m]));
+    }
+
+    // Buttons do not overlap, and clicks outside them change nothing
+    ASSERT_FALSE(scene.viewButtonBounds(0).intersects(scene.viewButtonBounds(1)));
+    scene.setOverlayMode(2);
+    ASSERT_FALSE(scene.handleViewPanelClick(sf::Vector2f(750.f, 450.f)));
+    ASSERT_EQ(scene.getOverlayMode(), 2);
+
+    // Panel stays clear of the top bar and bottom dock
+    Toolbar tb;
+    tb.init(1500.f, 900.f);
+    sf::FloatRect panel = scene.viewPanelBounds();
+    ASSERT_TRUE(panel.top > 50.f);
+    ASSERT_FALSE(tb.contains(sf::Vector2f(panel.left, panel.top + panel.height)));
+
+    scene.setOverlayMode(99); // invalid -> normal
+    ASSERT_EQ(scene.getOverlayMode(), 0);
+}
+
+TEST_CASE(Test_Farm_FertilityScalesIncome) {
+    clearTestGrid();
+    ScopedCoutSilence silence;
+    townCapacity[2] = 0;
+
+    // Default soil (50) -> 1.0x
+    FarmZone* average = new FarmZone(4, 4, 1);
+    ASSERT_EQ(average->zoneIncome, 35);
+    delete average;
+
+    const int offs[4][2] = {{0, 0}, {1, 0}, {-1, 1}, {0, 1}};
+    for (auto& o : offs) world[10 + o[0]][10 + o[1]].fertility = 100;
+    for (auto& o : offs) world[20 + o[0]][20 + o[1]].fertility = 0;
+
+    FarmZone* rich = new FarmZone(10, 10, 1);
+    FarmZone* barren = new FarmZone(20, 20, 1);
+    ASSERT_TRUE(rich->zoneIncome > 35);
+    ASSERT_TRUE(barren->zoneIncome < 35);
+    ASSERT_TRUE(rich->fertilityMul > barren->fertilityMul);
+    delete rich;
+    delete barren;
+
+    townCapacity[2] = 0;
     clearTestGrid();
 }
 

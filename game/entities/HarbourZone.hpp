@@ -1,6 +1,7 @@
 #pragma once
 #include "./_Zone.hpp"
 #include "../../src/Entity.hpp"
+#include "../world/WorldData.hpp"
 
 class HarbourZone : public Zone {
 public:
@@ -8,9 +9,10 @@ public:
     ~HarbourZone() = default;
 
     void update(float deltaTime) override;
+    void simTick() override;
     void drawGround(sf::RenderWindow& window) override;
     void drawBuilding(sf::RenderWindow& window) override;
-    void checkValid();
+    void checkValid() override;
     void payTax() override;
 };
 
@@ -58,7 +60,10 @@ inline HarbourZone::HarbourZone(int posX, int posY) {
 
 inline void HarbourZone::update(float deltaTime) {
     setDeltaTime(deltaTime);
-    checkValid();
+}
+
+// Once per simulation tick: taxes and tier progression
+inline void HarbourZone::simTick() {
     payTax();
 }
 
@@ -78,23 +83,8 @@ inline void HarbourZone::drawBuilding(sf::RenderWindow& window) {
 }
 
 inline void HarbourZone::checkValid() {
-    bool hasWater = false;
-    for (int i = posX - 2; i <= posX + 2; i++) {
-        if (i < 0 || i >= tileMapW) continue;
-        for (int j = posY - 1; j <= posY + 2; j++) {
-            if (j < 0 || j >= tileMapH || entities[i][j] == NULL) continue;
-            if (entities[i][j] == this) continue;
-            Zone* otherZ = dynamic_cast<Zone*>(entities[i][j]);
-            if (otherZ != NULL && otherZ->isSubTile && otherZ->rootX == posX && otherZ->rootY == posY) continue;
-
-            if (entities[i][j]->getName() == "WaterTile") {
-                hasWater = true;
-                break;
-            }
-        }
-        if (hasWater) break;
-    }
-    isActive = hasWater;
+    // Active when a road shares an edge with the 2x2 footprint
+    isActive = hasAdjacentRoad(posX, posY) && hasAdjacentWater(posX, posY);
 }
 
 inline void HarbourZone::payTax() {

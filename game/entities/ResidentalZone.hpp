@@ -1,6 +1,7 @@
 #pragma once
 #include "./_Zone.hpp"
 #include "../../src/Entity.hpp"
+#include "../world/WorldData.hpp"
 #include "../ui/Window.hpp"
 
 class ResidentalZone : public Zone {
@@ -9,10 +10,11 @@ public:
     ~ResidentalZone();
 
     void update(float deltaTime) override;
+    void simTick() override;
     void drawGround(sf::RenderWindow& window) override;
     void drawBuilding(sf::RenderWindow& window) override;
 
-    void checkValid();
+    void checkValid() override;
     void payTax() override;
     void upgradeTier(int newTier);
     void downgradeTier(int newTier);
@@ -110,7 +112,10 @@ inline std::string ResidentalZone::getVariantName() const {
 
 inline void ResidentalZone::update(float deltaTime) {
     setDeltaTime(deltaTime);
-    checkValid();
+}
+
+// Once per simulation tick: taxes and tier progression
+inline void ResidentalZone::simTick() {
     payTax();
 
     // Occurance & tier progression based on happiness
@@ -141,27 +146,8 @@ inline void ResidentalZone::drawBuilding(sf::RenderWindow& window) {
 }
 
 inline void ResidentalZone::checkValid() {
-    bool hasRoadOrActive = false;
-
-    // Check perimeter around true 2x2 diamond
-    for (int i = posX - 2; i <= posX + 2; i++) {
-        if (i < 0 || i >= tileMapW) continue;
-        for (int j = posY - 1; j <= posY + 2; j++) {
-            if (j < 0 || j >= tileMapH || entities[i][j] == NULL) continue;
-            if (entities[i][j] == this) continue;
-            Zone* otherZ = dynamic_cast<Zone*>(entities[i][j]);
-            if (otherZ != NULL && otherZ->isSubTile && otherZ->rootX == posX && otherZ->rootY == posY) continue;
-
-            if (entities[i][j]->getName() == "DirtRoad" ||
-               (entities[i][j]->getName() == "ResidentalZone" && entities[i][j]->isActive)) {
-                hasRoadOrActive = true;
-                break;
-            }
-        }
-        if (hasRoadOrActive) break;
-    }
-
-    isActive = hasRoadOrActive;
+    // Active when a road shares an edge with the 2x2 footprint
+    isActive = hasAdjacentRoad(posX, posY);
 }
 
 inline void ResidentalZone::payTax() {

@@ -56,7 +56,6 @@ inline ParkZone::ParkZone(int posX, int posY) {
 
 inline void ParkZone::update(float deltaTime) {
     setDeltaTime(deltaTime);
-    isActive = true;
 }
 
 inline void ParkZone::drawGround(sf::RenderWindow& window) {

@@ -8,6 +8,7 @@ public:
     ~SubZone() = default;
 
     void update(float deltaTime) override;
+    void simTick() override;
     void drawGround(sf::RenderWindow& window) override;
     void drawBuilding(sf::RenderWindow& window) override;
 };
@@ -44,6 +45,10 @@ inline SubZone::SubZone(int posX, int posY, int rX, int rY, const std::string& t
 
 inline void SubZone::update(float deltaTime) {
     setDeltaTime(deltaTime);
+}
+
+// Mirror the root tile's road-access state (read by HappinessSystem)
+inline void SubZone::simTick() {
     if (rootX >= 0 && rootX < tileMapW && rootY >= 0 && rootY < tileMapH) {
         if (entities[rootX][rootY] != NULL) {
             isActive = entities[rootX][rootY]->isActive;

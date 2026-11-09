@@ -21,7 +21,7 @@ endif()
 find_package(SFML 2.6 COMPONENTS graphics audio window system REQUIRED)
 
 # --- Main Executable ---
-add_executable(citybuilder main.cpp)
+add_executable(citybuilder main.cpp src/HeadlessWindow.cpp)
 
 target_include_directories(citybuilder PRIVATE
     ${CMAKE_SOURCE_DIR}

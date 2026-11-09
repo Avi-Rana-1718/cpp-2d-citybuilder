@@ -26,10 +26,11 @@ DirtRoad::DirtRoad(int posX, int posY) : Road(posX, posY) {
     std::cout << "\n" << getName() << " entity created with ID: " << getID() << std::endl;
 }
 
+// Roads have no per-frame logic: they are drawn by the culled ground pass
+// in Play_Scene::renderWorld, and re-tiled (check()) only when a road
+// next to them is built or removed (Play_Scene::refreshRoadsAround).
 void DirtRoad::update(float deltaTime) {
     setDeltaTime(deltaTime);
-    check();
-    draw();
 }
 
 void DirtRoad::check() {

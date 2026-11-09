@@ -35,7 +35,7 @@ enum BuildTool {
     // Infrastructure
     TOOL_ROAD,            // Dirt Road ($10)
     TOOL_WATER,           // Water Body ($10)
-    TOOL_BULLDOZE,        // Demolish ($5)
+    TOOL_BULLDOZE,        // Demolish ($5, $15 forest, $60 rock)
 
     // Compatibility Aliases
     TOOL_RESIDENTIAL = TOOL_RES_COTTAGES,

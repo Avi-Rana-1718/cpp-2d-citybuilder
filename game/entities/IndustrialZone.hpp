@@ -1,6 +1,7 @@
 #pragma once
 #include "./_Zone.hpp"
 #include "../../src/Entity.hpp"
+#include "../world/WorldData.hpp"
 #include "../ui/Window.hpp"
 
 class IndustrialZone : public Zone {
@@ -9,10 +10,11 @@ public:
     ~IndustrialZone();
 
     void update(float deltaTime) override;
+    void simTick() override;
     void drawGround(sf::RenderWindow& window) override;
     void drawBuilding(sf::RenderWindow& window) override;
 
-    void checkValid();
+    void checkValid() override;
     void payTax() override;
     void upgradeTier(int newTier);
     void downgradeTier(int newTier);
@@ -112,7 +114,10 @@ inline std::string IndustrialZone::getVariantName() const {
 
 inline void IndustrialZone::update(float deltaTime) {
     setDeltaTime(deltaTime);
-    checkValid();
+}
+
+// Once per simulation tick: taxes and tier progression
+inline void IndustrialZone::simTick() {
     payTax();
 
     if (isActive) {
@@ -142,23 +147,8 @@ inline void IndustrialZone::drawBuilding(sf::RenderWindow& window) {
 }
 
 inline void IndustrialZone::checkValid() {
-    bool hasRoad = false;
-    for (int i = posX - 2; i <= posX + 2; i++) {
-        if (i < 0 || i >= tileMapW) continue;
-        for (int j = posY - 1; j <= posY + 2; j++) {
-            if (j < 0 || j >= tileMapH || entities[i][j] == NULL) continue;
-            if (entities[i][j] == this) continue;
-            Zone* otherZ = dynamic_cast<Zone*>(entities[i][j]);
-            if (otherZ != NULL && otherZ->isSubTile && otherZ->rootX == posX && otherZ->rootY == posY) continue;
-
-            if (entities[i][j]->getName() == "DirtRoad") {
-                hasRoad = true;
-                break;
-            }
-        }
-        if (hasRoad) break;
-    }
-    isActive = hasRoad;
+    // Active when a road shares an edge with the 2x2 footprint
+    isActive = hasAdjacentRoad(posX, posY);
 }
 
 inline void IndustrialZone::payTax() {

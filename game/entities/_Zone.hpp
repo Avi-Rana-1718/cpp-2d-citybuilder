@@ -47,6 +47,14 @@ public:
     virtual void drawGround(sf::RenderWindow& window);
     virtual void drawBuilding(sf::RenderWindow& window);
     virtual void payTax();
+
+    // Recomputes isActive (road access). Called when the building is placed
+    // and when a road or water tile on its border changes, not every frame.
+    virtual void checkValid() {}
+
+    // Slow simulation step, run once per simulation tick (1 s) from
+    // Play_Scene, not every frame: tax collection, tier changes, etc.
+    virtual void simTick() {}
 };
 
 inline Zone::Zone(int posX, int posY) {

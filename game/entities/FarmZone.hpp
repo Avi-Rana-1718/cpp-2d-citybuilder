@@ -1,17 +1,21 @@
 #pragma once
 #include "./_Zone.hpp"
 #include "../../src/Entity.hpp"
+#include "../world/WorldData.hpp"
 
 class FarmZone : public Zone {
 public:
+    float fertilityMul = 1.0f; // soil yield multiplier from world[][].fertility
+
     FarmZone(int posX, int posY, int initialVariant = 1);
     ~FarmZone();
 
     void update(float deltaTime) override;
+    void simTick() override;
     void drawGround(sf::RenderWindow& window) override;
     void drawBuilding(sf::RenderWindow& window) override;
 
-    void checkValid();
+    void checkValid() override;
     void payTax() override;
     void updateBuildingTexture();
     std::string getVariantName() const;
@@ -36,6 +40,8 @@ inline FarmZone::FarmZone(int posX, int posY, int initialVariant) {
     population = 0;
     townCapacity[2] += capacity;
     zoneIncome = (variant == 1) ? 35 : 45;
+    fertilityMul = fertilityMultiplier(footprintFertility(posX, posY));
+    zoneIncome = static_cast<int>(static_cast<float>(zoneIncome) * fertilityMul + 0.5f);
     taxPaid = false;
 
     this->posX = posX;
@@ -91,7 +97,10 @@ inline std::string FarmZone::getVariantName() const {
 
 inline void FarmZone::update(float deltaTime) {
     setDeltaTime(deltaTime);
-    checkValid();
+}
+
+// Once per simulation tick: taxes and tier progression
+inline void FarmZone::simTick() {
     payTax();
 }
 
@@ -111,23 +120,8 @@ inline void FarmZone::drawBuilding(sf::RenderWindow& window) {
 }
 
 inline void FarmZone::checkValid() {
-    bool hasRoad = false;
-    for (int i = posX - 2; i <= posX + 2; i++) {
-        if (i < 0 || i >= tileMapW) continue;
-        for (int j = posY - 1; j <= posY + 2; j++) {
-            if (j < 0 || j >= tileMapH || entities[i][j] == NULL) continue;
-            if (entities[i][j] == this) continue;
-            Zone* otherZ = dynamic_cast<Zone*>(entities[i][j]);
-            if (otherZ != NULL && otherZ->isSubTile && otherZ->rootX == posX && otherZ->rootY == posY) continue;
-
-            if (entities[i][j]->getName() == "DirtRoad") {
-                hasRoad = true;
-                break;
-            }
-        }
-        if (hasRoad) break;
-    }
-    isActive = hasRoad;
+    // Active when a road shares an edge with the 2x2 footprint
+    isActive = hasAdjacentRoad(posX, posY);
 }
 
 inline void FarmZone::payTax() {

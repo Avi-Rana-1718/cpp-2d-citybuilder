@@ -2,6 +2,8 @@
 
 #include <SFML/Graphics.hpp>
 #include <SFML/Audio.hpp>
+#include <algorithm>
+#include <cstdio>
 
 #include "_global.hpp"
 #include "Entity.hpp"
@@ -9,6 +11,9 @@
 #include "AssetManager.hpp"
 
 #include "../game/scenes/Play_Scene.hpp"
+
+// Defined in src/HeadlessWindow.cpp: an off-screen, never-focused native window
+void* createHeadlessWindowHandle(int width, int height);
 
 class GameEngine {
 
@@ -25,7 +30,13 @@ class GameEngine {
 };
 
 GameEngine::GameEngine() {
-    _window.create(sf::VideoMode(WINDOW_W, WINDOW_H), gameTitle);
+    void* headlessHandle = headless ? createHeadlessWindowHandle(WINDOW_W, WINDOW_H) : nullptr;
+    if (headlessHandle != nullptr) {
+        _window.create(static_cast<sf::WindowHandle>(headlessHandle));
+    } else {
+        _window.create(sf::VideoMode(WINDOW_W, WINDOW_H), gameTitle);
+        if (headless) _window.setVisible(false); // non-Windows fallback
+    }
     view.setSize(sf::Vector2f(WINDOW_W, WINDOW_H));
     view.setCenter(sf::Vector2f(WINDOW_W / 2.f, WINDOW_H / 2.f));
     _window.setView(view);
@@ -44,6 +55,12 @@ GameEngine::GameEngine() {
     assets.addTexture("park", "park.png");
     assets.addTexture("harbour", "harbour.png");
     assets.addTexture("water", "water.png");
+
+    // Natural terrain
+    assets.addTexture("sand", "sand.png");
+    assets.addTexture("forest", "forest.png");
+    assets.addTexture("rock", "rock.png");
+    assets.addTexture("forest_path", "forest_path.png");
 
     // Zone Designation Ground Tiles
     assets.addTexture("zone_residental", "zone_residental.png");
@@ -86,9 +103,47 @@ void GameEngine::run() {
     currentScene->init();
     gameTime.restart();
 
+    // Benchmark state (only used with --bench)
+    const float benchWarmup = 1.0f;
+    float benchElapsed = 0.f;
+    float benchMeasured = 0.f;
+    float benchWorst = 0.f;
+    int benchFrames = 0;
+    int benchWorstFrame = 0;
+    float benchWorstAt = 0.f;
+
     while(isRunning) {
         sf::Time deltaTime = deltaClock.restart();
         frames++;
+
+        if (benchSeconds > 0.f) {
+            float dt = deltaTime.asSeconds();
+            benchElapsed += dt;
+            if (benchElapsed > benchWarmup) {
+                benchMeasured += dt;
+                if (dt > benchWorst) {
+                    benchWorst = dt;
+                    benchWorstFrame = benchFrames;
+                    benchWorstAt = benchElapsed;
+                }
+                benchFrames++;
+                if (benchMeasured >= benchSeconds) {
+                    std::printf("\nBENCH frames=%d avg_ms=%.3f fps=%.1f worst_ms=%.3f worst_frame=%d worst_at_s=%.2f\n",
+                                benchFrames, 1000.f * benchMeasured / benchFrames,
+                                benchFrames / benchMeasured, 1000.f * benchWorst, benchWorstFrame, benchWorstAt);
+                    std::fflush(stdout);
+                    if (!benchShot.empty()) {
+                        sf::Texture shot;
+                        shot.create(_window.getSize().x, _window.getSize().y);
+                        shot.update(_window);
+                        shot.copyToImage().saveToFile(benchShot);
+                    }
+                    isRunning = false;
+                    _window.close();
+                    break;
+                }
+            }
+        }
 
         if(framesClock.getElapsedTime().asSeconds() >= 1) {
             calculatedFPS = frames;

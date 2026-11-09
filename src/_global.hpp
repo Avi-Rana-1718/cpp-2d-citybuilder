@@ -37,6 +37,13 @@ int entityCount=0;
 int frames=0;
 int calculatedFPS=0;
 
+// Benchmark mode (--bench N): run N seconds after warm-up, print frame stats, exit
+float benchSeconds=0.f;
+std::string benchShot; // --shot file.png: save a screenshot when --bench ends
+bool headless=false;   // --headless (implied by --bench, undo with --show): off-screen window that never takes focus
+bool benchCity=false;  // --bench-city: fill the map with a dense test city before benchmarking
+float startZoom=1.f; // --zoom Z: initial camera zoom (1 = default, 3.2 = max out)
+
 std::map<std::string, sf::Texture> m_textures;
 std::map<std::string, sf::Font> m_fonts;
 std::map<std::string, sf::SoundBuffer> m_sounds;
