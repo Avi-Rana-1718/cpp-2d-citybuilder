@@ -1,242 +1,233 @@
-# TheoTown City Simulation Guide — Mechanics & Architecture
+# Chime V2: Gameplay & Simulation Guide
 
-Welcome to the new city simulation system for **Chime V2**! This document provides a complete guide to all features, mechanics, economic loops, and technical designs implemented in the simulation.
+This guide explains how the city works: what each building does, how demand, taxes and upkeep are calculated, how time and seasons work, and how the world is generated. All numbers come from the code (`game/simulation/EconomyData.hpp`, `Economy.hpp`, `HappinessSystem.hpp`, `GameClock.hpp`, `game/ui/Toolbar.hpp`).
 
 ---
 
-## 1. Quick Start & Controls
+## 1. Getting started
 
-Launch the game via:
 ```powershell
-.\build\citybuilder.exe
+.\build\citybuilder.exe            # random world
+.\build\citybuilder.exe --seed 42  # a specific world
 ```
 
-### Controls Cheat-Sheet
+You start on **1 March, Year 1** with **$20,000**, next to an 8×8 patch of open grass that has water nearby.
 
-| Control | Function | Description |
+A good opening:
+1. Draw a road (`Space`, then drag).
+2. Line it with **cottages** (`R`).
+3. Add a few **shops** (`C`) and **workshops** (`I`) so residents have jobs.
+4. Add a **school** (`1`) once you want medium-income residents.
+5. Watch the demand bars in the top bar and the budget (`B`).
+
+### Controls
+
+| Input | Action |
+|---|---|
+| Left sidebar | Category icons open a flyout of build cards (thumbnail, price, hotkey) |
+| Left click / drag | Build. Roads, water and demolish follow your drag. Buildings are placed where you release |
+| Right click / `Esc` | Cancel the drag or tool and return to Inspect. `Esc` also closes the budget |
+| `W A S D` / arrows | Pan (`Shift` = faster) |
+| `Q` / `E`, `+` / `-` | Zoom in / out (0.4×-3.2×) |
+| `R` `C` `I` `F` | Cottages, Corner Grocery, Scrap Workshop, Farm |
+| `1` `2` `3` `H` | School, Church, Park, Harbour |
+| `Space` `W` `X` | Road, Water (when no tool is selected), Demolish |
+| `P`, `[`, `]` | Pause / resume, slower, faster |
+| `B` | Budget panel (or click the money chip) |
+| `O` | Map view: Normal → Fertility → Groundwater → Deposits |
+| `N` | Found a new city after bankruptcy |
+
+The window can be resized or maximized. A bigger window shows more map, and the interface stays sharp and keeps to the edges.
+
+---
+
+## 2. The interface
+
+| Element | Where | What it shows |
 |---|---|---|
-| **Mouse Hover** | Tile Selector | Snaps cursor diamond with collision detection to isometric grid. |
-| **Left Click + Drag** | **Drag-to-Multibuild** | Drag across the grid to preview and batch-build zones, civics, or roads on mouse release. |
-| **Right Click** | Cancel / Inspect | Cancels active drag gesture or switches active tool back to `INSPECT`. |
-| **`W / A / S / D`** or **Arrow Keys** | Camera Pan | Smooth 600 px/sec camera panning across the 2D isometric world. |
-| **Bottom TheoTown Dock** | Category Toolbar | Click top category tabs (`INSPECT`, `ZONING`, `CIVICS`, `INFRASTRUCTURE`) or individual tool buttons. |
-
-### Hotkey Directory
-
-- `Esc` : **Inspect Mode** (Deselects tool)
-- `R` : **Residential Zone**
-- `C` : **Commercial Zone**
-- `I` : **Industrial Zone**
-- `F` : **Farms** (Agricultural Zone)
-- `1` : **Elementary School** (Civic)
-- `2` : **Community Church** (Civic)
-- `3` : **Nature Park** (Civic)
-- `Space` : **Dirt Road**
-- `H` : **Trade Harbour**
-- `W` : **Water Body**
-- `X` : **Demolish / Bulldoze**
-- `O` : **Cycle map view** (Normal → Fertility → Groundwater → Deposits)
+| **Build menu** | Left | Six categories. A "Placing …" pill at the bottom-left shows the active tool. Its **x** cancels it |
+| **Money chip** | Top bar | Treasury and yesterday's net (`+$28 / day`), or "Debt! N days left". Click it to open the budget |
+| **Population chip** | Top bar | Citizens, plus **9 demand bars**: R / C / I groups, each split $ / $$ / $$$. Bars going up mean demand; red bars going down mean a surplus |
+| **Happiness chip** | Top bar | City-wide happiness (green ≥ 75, yellow ≥ 50, red below) |
+| **Date chip** | Top bar | Date, season and the speed buttons `‖ ▶ ▶▶ ▶▶▶` |
+| **Map View** | Top right | Normal / Fertility / Groundwater / Deposits, with a colour legend |
+| **Inspect card** | Right | The hovered building or tile: tier stars, road status, tax or upkeep per day, occupancy, happiness, and the land underneath |
+| **Toasts** | Bottom | Build errors and debt warnings |
 
 ---
 
-## 2. TheoTown Bottom Dock (Toolbar)
+## 3. Buildings
 
-The bottom dock is modeled directly after TheoTown's categorized building menu:
+All 2×2 buildings need a road on one of the **8 tiles that share a full edge** with their footprint. A road that only touches a corner (a diamond tip) does not count.
 
-```
-┌────────────────────────────────────────────────────────────────────────────────────────┐
-│  [INSPECT (Esc)]   │   [ZONING]   │   [CIVICS / SERVICES]   │   [INFRASTRUCTURE]       │
-├────────────────────────────────────────────────────────────────────────────────────────┤
-│  Tool 1            │   Tool 2     │   Tool 3                │   Tool 4                 │
-└────────────────────────────────────────────────────────────────────────────────────────┘
-```
+| Building | Hotkey | Cost | Income level | Capacity | Upkeep / day |
+|---|---|---|---|---|---|
+| Suburban Cottages | `R` | $100 | R $ | 20-29 residents | – |
+| Brick Apartments | | $250 | R $$ | 50-69 | – |
+| Luxury Highrise | | $600 | R $$$ | 120-149 | – |
+| Corner Grocery | `C` | $120 | C $ | 15-24 jobs | – |
+| Shopping Plaza | | $280 | C $$ | 40-59 | – |
+| Corporate Tower | | $750 | C $$$ | 100-129 | – |
+| Scrap Workshop | `I` | $150 | I $ | 15-24 jobs | – |
+| Factory Plant | | $350 | I $$ | 40-59 | – |
+| Clean-Fab Hub | | $800 | I $$$ | 90-119 | – |
+| Farm (barn & silo) | `F` | $70 | I $ | 20 jobs | – |
+| Windmill Farm | | $90 | I $ | 25 jobs | – |
+| Elementary School | `1` | $200 | – | – | $25 |
+| Community Church | `2` | $180 | – | – | $20 |
+| Nature Park | `3` | $80 | – | – | $10 (always active once built) |
+| Trade Harbour | `H` | $250 | C $$ | 30 port jobs | $40 |
+| Dirt Road | `Space` | $10 / tile | – | – | $1 / tile |
+| Water Body | `W` | $20 / tile | – | – | – |
+| Demolish | `X` | $5 (forest $15, rock $60) | – | – | – |
 
-1. **INSPECT Tab**: Puts the cursor in inspection mode without modifying the map.
-2. **ZONING Tab**: Residential ($100), Commercial ($100), Industrial ($120), Farms ($60).
-3. **CIVICS / SERVICES Tab**: Elementary School ($200), Community Church ($180), Nature Park ($80).
-4. **INFRASTRUCTURE Tab**: Dirt Road ($10), Trade Harbour ($250), Water Body ($20), Demolish ($5).
-
----
-
-## 3. Tiered Zoning & Building Progression
-
-Every developable zone features dynamic growth, road connection validation, capacity management, and visual progression.
-
-### 1. Residential Zones (`ResidentalZone`)
-- **Cost**: $100 | **Tax Index**: `townTaxes[0]`
-- **Connection**: Requires a `DirtRoad` on one of its 8 edge-sharing border tiles (no chaining through other zones).
-- **Tiers**:
-  - **Tier 1 (Suburban Cottages)**: 10–30 population capacity. Standard sprite.
-  - **Tier 2 (Brick Apartments)**: Triggered when zone happiness reaches $\ge 60\%$. Capacity $\times 2.0$, income $\times 2.2$. Visual green-brick tint.
-  - **Tier 3 (Highrise Estate)**: Triggered when zone happiness reaches $\ge 80\%$, Education $> 50\%$, and Parks $> 50\%$. Capacity $\times 2.5$, income $\times 2.8$. Modern sky-blue luxury tint.
-
-### 2. Commercial Zones (`CommericalZone`)
-- **Cost**: $100 | **Tax Index**: `townTaxes[1]`
-- **Connection**: Requires a `DirtRoad` on one of its 8 edge-sharing border tiles.
-- **Tiers**:
-  - **Tier 1 (Corner Shops)**: 15–40 job capacity. Custom commercial storefront sprite.
-  - **Tier 2 (Shopping Plazas)**: Auto-develops once town population surpasses 50 citizens. Capacity $\times 1.8$, income $\times 2.0$.
-  - **Tier 3 (Corporate Towers)**: Auto-develops once town population surpasses 120 citizens. Capacity $\times 2.2$, income $\times 2.5$. Golden commerce tint.
-
-### 3. Industrial Zones (`IndustrialZone`)
-- **Cost**: $120 | **Tax Index**: `townTaxes[2]`
-- **Connection**: Requires road adjacency.
-- **Pollution**: Emits heavy smog in a 3-tile radius, reducing health and happiness of nearby residential zones.
-- **Tiers**:
-  - **Tier 1 (Workshops)**: 15–40 industrial labor jobs.
-  - **Tier 2 (Manufacturing Plants)**: Upgrades when industrial demand $> 200$. Capacity $\times 1.8$.
-  - **Tier 3 (Heavy Industry)**: Upgrades when industrial demand $> 400$. Capacity $\times 2.2$.
-
-### 4. Agricultural Farms (`FarmZone`)
-- **Cost**: $60 | **Tax Index**: `townTaxes[2]`
-- **Characteristics**: Low-density food and agrarian production. Generates 10 jobs with zero pollution emission. Ideal buffer zones between residential districts and heavy industry.
+- **Industry pollutes** within 3 tiles, which hurts the health of nearby homes and lowers residential demand.
+- **Farms** don't pollute. Their income depends on soil (×0.4 on barren land up to ×1.6 on rich soil) and on the season (see §6).
+- **Harbours** must touch water and a road. Each active harbour adds export demand for low- and medium-income industry.
+- **Demolishing** a building returns its tiles to the original ground: grass, sand or forest path.
 
 ---
 
-## 4. Public Services & Infrastructure
+## 4. Economy
 
-Public services project radial coverage across the grid that citizens require to be happy and for residential zones to evolve.
+### Income levels
+A building's tier sets its income level: Tier 1 = **$** (low), Tier 2 = **$$** (medium), Tier 3 = **$$$** (high). Every residential, commercial and industrial building belongs to one of **9 buckets** (sector × income level).
 
-```
-       [School: R=5]              [Church: R=4]              [Park: R=4]
-    * * * * * * * * *          * * * * * * * * *          * * * * * * * * *
-    *   . . . . .   *          *   . . . . .   *          *   . . . . .   *
-    * . . . S . . . *          * . . . C . . . *          * . . . P . . . *
-    *   . . . . .   *          *   . . . . .   *          *   . . . . .   *
-    * * * * * * * * *          * * * * * * * * *          * * * * * * * * *
-```
+### Demand
+Demand is computed once per game day for each bucket, from −100 to +100. With *residents* = people living in homes of that income level, and *workers* = 0.6 × residents:
 
-- **Elementary School (`SchoolZone`)**
-  - **Footprint**: **2×2 True Isometric Diamond** | **Sprite**: 48×64 Pixel-Art (`school.png`)
-  - **Cost**: $200 | **Coverage Radius**: 5 tiles
-  - Features a multi-wing brick hall, bell tower with golden bell, courtyard, and flag pole.
-  - Occupies 4 tiles forming a true 2:1 isometric diamond: `(x, y)`, `(x+1, y)`, `(x-1, y+1)`, and `(x, y+1)`. A road on any of the 8 tiles sharing a full diamond edge with the footprint (`BORDER_2X2` in `WorldData.hpp`) activates the entire complex. Tiles that only touch at a diamond tip (`(i, j±1)` directions) do not count. Placement (`canPlaceTile`) and activation (`checkValid`) use the same rule, and road access is re-checked only when a nearby road, water tile or building changes. Harbours need both a road and water on their border.
-  - Provides $+100$ Education score to all residences within range. Prerequisite for Tier 3 Highrise estates.
-- **Community Church (`ChurchZone`)**
-  - **Footprint**: **2×2 True Isometric Diamond** | **Sprite**: 48×70 Pixel-Art (`church.png`)
-  - **Cost**: $180 | **Coverage Radius**: 4 tiles
-  - Features stone buttresses, steep slate roof, large arched stained-glass rose window, and gothic belfry spire with a golden crucifix reaching into the skyline.
-  - Occupies 4 tiles with unified road connectivity, hover preview, and demolition propagation.
-  - Fosters civic order, moral cohesion, and provides $+50$ safety boost.
-- **Nature Park (`ParkZone`)**
-  - **Cost**: $80 | **Coverage Radius**: 4 tiles
-  - Accessible naturally without roads. Absorbs industrial pollution, boosts Health ($+70$) and Recreation ($+100$).
-- **Trade Harbour (`HarbourZone`)**
-  - **Cost**: $250 | **Placement**: Placed on the shoreline (touching water terrain) with a `DirtRoad` connection.
-  - Generates $+30$ maritime trade jobs and strong periodic tax dividends ($+\$100\text{--}\$150$).
-- **Water Bodies (`Terrain::Water`)**
-  - **Cost**: $20 | Natural terrain foundation and maritime canal network.
+| Sector | Base ($ / $$ / $$$) | Grows with |
+|---|---|---|
+| Residential | 35 / 15 / 5 | open job capacity (shop + industry buildings at that level) compared with workers |
+| Commercial | 10 / 5 / 0 | customers (0.25 × residents) compared with shop jobs already filled |
+| Industrial | 20 / 8 / 0 | available labour (0.5 × workers) compared with industry jobs already filled, **+10 per active harbour** (max +30, $ and $$ only) |
+
+Each comparison is `100 × (want − have) / max(floor, want + have)`. Then these modifiers apply:
+
+| Modifier | Effect ($ / $$ / $$$) |
+|---|---|
+| Tax above 7% | −2.5 / −3.5 / −5 per percentage point, using that bucket's own slider. Below 7% raises demand |
+| Happiness (vs 55) | Residential ±0.4 / ±0.7 / ±1.0 per point; commercial and industrial get half |
+| Pollution near homes | Residential −0.2 / −0.5 / −1.0 × average pollution |
+| Education (school coverage over homes, 0-100) | R $$ −0.8 × (40 − edu); R $$$ −1.0 × (70 − edu); I $$$ −0.8 × (60 − edu). Applies only when coverage is below those thresholds |
+
+Hover a row in the budget panel to see the main reason a bucket's demand is held back, e.g. "Needs more schools" or "Taxes too high".
+
+### People moving in and out (daily)
+- **Road-connected building, positive demand:** gains `capacity × (4% + 12% × demand/100)` occupants (at least 1), up to capacity.
+- **Demand below −15:** loses `capacity × 8% × |demand|/100` occupants.
+- **No road:** loses a fifth of its capacity per day.
+
+### Upgrades and downgrades
+- A building moves **up** a tier when all of these are true:
+  - it is at least 90% full;
+  - the next income level has demand above +25;
+  - it is liked enough: residential needs the home's happiness ≥ 60 (→ Tier 2) or ≥ 75 (→ Tier 3); commercial and industrial use city happiness;
+  - it wins a 1-in-5 daily roll.
+- It moves **down** when its lower income level has demand below −40, it is less than 40% full, and it wins the same roll.
+- Farms and harbours don't change tier.
+
+### Taxes
+Tax per building per day:
+
+$$\text{occupants} \times \text{income per occupant} \times \text{tax rate}$$
+
+| Income per occupant per day | $ | $$ | $$$ |
+|---|---|---|---|
+| Residents | $3 | $6 | $12 |
+| Shop / office workers | $4 | $8 | $16 |
+| Industrial workers | $3.50 | $7 | $14 |
+
+There are nine tax sliders (0-20%, default **9%**), one per bucket. Farms multiply their tax by soil × season. Fractions of a dollar carry over to the next day.
+
+### Upkeep, loans and debt
+- **Upkeep** is paid daily; see the table in §3. Homes, shops, industry and farms cost nothing to run.
+- **Loans:** $10,000 each, at most 3 at a time. You repay 110% in daily instalments over 360 days.
+- **Debt:** money can go below $0, but you can't build anything you can't pay for. Warnings appear on the 1st, 90th and 150th day in debt. **After 180 days in a row in debt the city goes bankrupt**: the game stops and you can found a new city (`N`).
+
+### Budget panel (`B`)
+- **Left:** per bucket, a demand bar with its value, the tax slider (drag it), the rate, and yesterday's tax income.
+- **Right:** daily expenses (roads with tile count, schools, churches, parks, harbours, loan repayments), the summary (tax income, expenses, net per day), loans (active, still owed, "Take $10,000 loan"), and a red warning strip while in debt.
+
+### Balance reference
+From `--fast-forward`, seed 42:
+- An 18-building starter town (homes, 3 shops, 3 workshops, a farm, a school and a park) settles at about **+$28/day**.
+- A dense 650-building grid with a school every sixth lot loses about $1,400/day and goes bankrupt within the first year.
 
 ---
 
-## 5. Citizen Happiness System (`HappinessSystem`)
+## 5. Happiness and services
 
-The simulation runs a 9-factor citizen satisfaction model (`src/Scene.hpp` & `game/simulation/HappinessSystem.hpp`):
+Coverage is a circle around each service (radius in tiles):
 
-1. **Taxes** ($20\%$ weight): Citizens dislike high taxes. Satisfaction $= \max(0, 100 - (\text{Tax Rate} \times 4))$.
-2. **Jobs & Employment** ($25\%$ weight): Ratio of available jobs (Commercial $+$ Industrial $+$ Harbour $+$ Farms) to working citizens. If jobs $\ge$ workers, score is $100\%$.
-3. **Education** ($20\%$ weight): Elementary school radial coverage ($R=5$).
-4. **Health** ($20\%$ weight): Base health ($70\%$) $+$ Park coverage (up to $+30\%$) $-$ Industrial pollution smog.
-5. **Safety** ($15\%$ weight): Civic stability $+$ Church influence ($R=4$).
-6. **Recreation**: Parks $+$ Commercial shopping access.
-7. **Traffic**: Road connectivity and proximity.
-8. **Ease of Access**: Transit availability.
-9. **Total Population**: City scale multiplier.
+| Service | Radius | Effect on homes inside |
+|---|---|---|
+| School | 5 | Education 100 |
+| Church | 4 | Safety = 60 + faith/2 |
+| Park | 4 | Health +; recreation |
+| Industry | 3 | Pollution 60 (lowers health and demand) |
+| Commerce | 3 | Recreation (shopping) |
 
-$$\text{Zone Happiness} = (0.25 \times \text{Jobs}) + (0.20 \times \text{Edu}) + (0.20 \times \text{Health}) + (0.15 \times \text{Safety}) + (0.20 \times \text{TaxSat})$$
+Each home's happiness is
 
-- When Happiness $\ge 60\%$, cottages upgrade into Tier 2 brick apartment buildings.
-- When Happiness $\ge 80\%$ with education and park coverage, apartments upgrade into Tier 3 highrises.
-- If Happiness drops below $40\%$, citizens will begin emigrating and population demand plummets.
+$$0.25\,\text{Jobs} + 0.20\,\text{Education} + 0.20\,\text{Health} + 0.15\,\text{Safety} + 0.20\,\text{TaxSatisfaction}$$
+
+where:
+- **Jobs** = min(100, 100 × job capacity / residents).
+- **Health** = 70 + parks − pollution.
+- **TaxSatisfaction** = 100 − 6 × (average residential tax − 5).
+
+City happiness is the average over all connected homes. It feeds demand (§4) and residential upgrades.
 
 ---
 
-## 5a. Time, Speed & Seasons
+## 6. Time and seasons
 
-- **Calendar**: 1 game day = 4 seconds at 1x. 30-day months, 12 months a year. The game starts on **1 March, Year 1**.
-- **Speed**: Pause / 1x / 2x / 4x via the top-bar buttons, `P` (pause / resume) and `[` / `]` (slower / faster). Pausing freezes income, growth and simulation.
-- **Daily taxes**: every active building pays `income x sector tax %` once per game day. The top bar shows the last day's total (`+$X/day`), and each building's card shows its own daily yield.
-- **Seasons** (3 months each):
+- **Calendar:** 1 day = 4 s at 1x. A month is 30 days and a year is 12 months (a year lasts 24 minutes at 1x).
+- **Speed:** pause, 1x, 2x or 4x. Simulation ticks run once per game second, so 4 per real second at 4x, and stop while paused.
+- **Each new day:** the economy runs: demand, people moving in and out, upgrades, taxes, upkeep, loans and the debt clock.
 
 | Season | Months | Look | Farm yield |
 |---|---|---|---|
-| Spring | Mar-May | Fresh green | x1.0 |
-| Summer | Jun-Aug | Full colour | x1.3 |
-| Autumn | Sep-Nov | Orange and gold forests, drier grass | x1.5 (harvest) |
-| Winter | Dec-Feb | Snow on land, lots and roads; frosted trees; dark water | x0.3 |
+| Spring | Mar-May | Fresh green | ×1.0 |
+| Summer | Jun-Aug | Full colour | ×1.3 |
+| Autumn | Sep-Nov | Orange and gold forests, drier grass | ×1.5 (harvest) |
+| Winter | Dec-Feb | Snow on land, lots and roads; frosted trees; darker water | ×0.3 |
 
-Visuals blend into the next season over the last ~18 days of each season.
+Each season blends into the next over its last ~18 days.
 
-## 5b. Procedural World & Natural Resources
+---
 
-Each game generates a new 64×64 world from a seed (launch with `--seed N` to replay one; the seed is shown in the top bar).
+## 7. World and natural resources
+
+Every city is a new 64×64 world generated from a seed. Launch with `--seed N` to replay one; the seed is shown bottom-right.
 
 | Feature | Gameplay effect |
 |---|---|
-| **Ocean, lakes, rivers** | Water blocks building; harbours need a shoreline. |
-| **Sand beaches** | Buildable ground along the ocean coast. |
-| **Forests** | Block building; bulldoze for $15 to clear to grass. |
-| **Forest paths** | Buildable trails through forests; roads can be laid on them. |
-| **Rocky hills** | Block building; bulldoze for $60. Stone and iron are found in and around them. |
-| **Fertility** | Farm income ×0.4 (barren) to ×1.6 (rich). Best near rivers and lakes. |
-| **Groundwater** | Underground water table. Reserved for future wells. |
-| **Coal / Iron / Stone** | Ore and stone clusters. Reserved for future mines. |
+| Ocean, lakes, rivers | Can't be built on; harbours need a shoreline |
+| Sand beaches | Buildable ground along the ocean coast |
+| Forests | Block building; bulldoze for $15 |
+| Forest paths | Buildable trails; roads can be laid on them |
+| Rocky hills | Block building; bulldoze for $60. Stone and iron are found in and around them |
+| Soil fertility | Farm output ×0.4-×1.6; best near rivers and lakes |
+| Groundwater | Underground water table (reserved for future water pumps) |
+| Coal / iron / stone | Ore clusters (reserved for future mines) |
 
-Use the **Map View** panel at the top left (or press `O`) to switch between Normal, Fertility, Groundwater and Deposits views. Each view shows a small colour legend under the buttons.
+**Map View** (top right or `O`) tints the map:
+- **Fertility:** red = barren, green = rich.
+- **Groundwater:** deeper blue = more water.
+- **Deposits:** coal black, iron orange, stone white.
 
----
-
-## 6. Performance & Architecture Highlights
-
-- **Throttled Simulation Loop**: Rendering runs every frame, but all simulation (taxes, tier changes, happiness coverage) runs once per second in `Play_Scene::runSimulationTick()` via `Zone::simTick()`. Map entities have no per-frame `update()` work.
-- **Display-List Ghosting**: The drag-to-multibuild system uses zero-allocation drawing passes for ghost sprites and colored indicator diamonds.
-- **Leak-Free Memory Model**: All tile replacements properly invoke virtual entity destructors to clean up textures, shapes, and decrement municipal capacity before instantiating new entities.
+**Generation order:** heightmap with a coastline on 1-2 map edges → ocean → lakes → rivers → beaches → hills → forests → forest paths → start area → fertility → groundwater → deposits. Generation is deterministic: the same seed always gives the same world.
 
 ---
 
-## 7. Automated Test Suite (52 Tests)
+## 8. Performance notes
 
-All systems are covered by automated unit and integration tests in `tests/test_main.cpp`:
+- **Ground:** all natural ground is drawn in **one** call, from a vertex array over a runtime texture atlas. It is rebuilt only when terrain or the season look changes.
+- **No per-frame logic for map objects:** simulation runs per game second and per game day. Road access and road shapes are re-checked only when something nearby changes.
+- **Off-screen tiles are skipped:** draw passes visit only the tiles inside the camera's view.
+- **HUD caching:** text and panel shapes are cached, so the interface costs about the same as the old text-only HUD.
+- **Benchmark:** `--bench 5 --bench-city` runs off-screen without taking focus. A 650-building city takes about 4-5 ms per frame in a Debug build.
 
-```powershell
-.\build\citybuilder_tests.exe
-```
-
-Test coverage includes:
-1. `Test_IsometricProjection_Formula`: Mathematical verification of 2:1 isometric diamond mapping ($X = 32x, Y = 32y + 16x$).
-2. `Test_IsometricRaycasting_DiamondCenter & DiamondTips`: Diamond collision math and bounding-box exclusion.
-3. `Test_Toolbar_LayoutAndDefaults & ToolSelection`: Dock coordinate geometry and selection state.
-4. `Test_DragComputation_RectangularBox & RoadLPath`: Rectangular and L-path multibuild computations.
-5. `Test_Zone_CapacityAccounting`: Verification of `townCapacity` additions and subtractions.
-6. `Test_Zone_AdjacencyActivationRules`: Edge-sharing border activates; tip-touching and corner tiles do not; no chaining.
-7. `Test_Zone_BoundaryEdgeSafety`: Grid edge $[0, 63]$ bounds safety.
-8. `Test_Economy_TaxationCycle & PopulationGrowth`: Calendar tax payment and immigration conservation.
-9. `Test_Roads_AutotilingLogic`: Autotiling neighbor checks (`road` vs `road-mid`).
-10. `Test_IndustrialZone_LifecycleAndTiers`: Industrial tier upgrades and capacity cleanup.
-11. `Test_FarmZone_RoadActivationAndTaxes`: Farm road dependency and tax generation.
-12. `Test_HarbourZone_WaterAdjacency`: Shoreline water tile adjacency detection.
-13. `Test_CivicServices_RadiusesAndTypes`: School, Church, and Park service radiuses.
-14. `Test_HappinessSystem_CoverageMaps`: Spatial radial coverage propagation.
-15. `Test_HappinessSystem_ScoringAndTierProgression`: Autonomous Tier 1 $\to$ Tier 2 upgrade verification.
-16. `Test_Toolbar_NewCategoriesAndToolNames`: Category switching and tool label resolution.
-17. `Test_CivicServices_SchoolAndChurchProperties`: Service radiuses and multi-tile zone attributes.
-18. `Test_Zone_TiersVariantsAndHappinessProgression`: Tier upgrade and downgrade thresholds based on happiness.
-19. `Test_Zone_SameBaseTextureAcrossSubZones`: Uniform ground texture keys (`zone_residental`, etc.) across all 4 diamond tiles.
-20. `Test_Demolition_RestoresGrassTile`: Teardown of any multi-tile building empties all 4 constituent tiles back to natural grass.
-21. `Test_World_FullBuildingCoverage`: Verification of full metropolis structures and harbor shoreline validity.
-22. `Test_TheoTown_CannotBuildOnRoad`: Prevents structure placement colliding with existing roads.
-23. `Test_TheoTown_CannotBuildOnWater`: Prevents building structures or duplicate roads over water bodies.
-24. `Test_TheoTown_RequiresRoadConnection`: Validates road adjacency requirement for residential zones.
-25. `Test_TheoTown_HarbourShorelineRules`: Enforces simultaneous road connectivity and shoreline water contact.
-26. `Test_TheoTown_InsufficientFundsAndBulldoze`: Validates municipal treasury guards and bulldoze demolition fees.
-27. `Test_WorldGen_Deterministic`: Same seed reproduces the world exactly; different seeds differ.
-28. `Test_WorldGen_TerrainMix`: Water 10-45% of the map; forest, rock, sand and every deposit type present.
-29. `Test_WorldGen_ForestPathsExist`: Forest trails are carved across seeds.
-30. `Test_WorldGen_SpawnGuarantee`: 8×8 grass spawn with water within 8 tiles.
-31. `Test_WorldGen_DataInvariants`: Value ranges, barren water/sand/rock.
-32. `Test_WorldGen_NaturalGroundHasNoEntities`: Natural ground has no entities; `tileKind` reads `world[][]`.
-33. `Test_GroundRenderer_OneQuadPerTile`: One quad per tile, rebuilt only when marked dirty.
-34. `Test_Placement_ForestAndRockBlock`: Forest/rock block building; bulldoze costs and clearing.
-35. `Test_Demolition_RestoresTerrainBase`: Demolished roads return to sand / forest path.
-36. `Test_MapView_SelectorButtons`: Map View panel buttons select each view; layout clear of top bar and dock.
-37. `Test_Farm_FertilityScalesIncome`: Farm income scales with soil fertility.
+Test coverage is summarized in [agents.md](../agents.md#tests-teststest_maincpp-59).
