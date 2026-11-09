@@ -523,34 +523,35 @@ bool Play_Scene::canPlaceTile(int x, int y, BuildTool tool, std::string* outReas
     }
 
     // 4. 2x2 Structures (Residential, Commercial, Industrial, Farm, School, Church, Park, Harbour)
-    if (x < 0 || x + 1 >= tileMapW || y < 0 || y + 1 >= tileMapH) {
+    // True 2x2 Isometric Diamond: (x, y), (x + 1, y), (x - 1, y + 1), (x, y + 1)
+    if (x < 1 || x + 1 >= tileMapW || y < 0 || y + 1 >= tileMapH) {
         if (outReason) *outReason = "Out of Map Bounds";
         return false;
     }
 
+    const sf::Vector2i diamondOffsets[4] = {{0, 0}, {1, 0}, {-1, 1}, {0, 1}};
+
     // Check all 4 footprint tiles for obstacles
-    for (int dx = 0; dx <= 1; dx++) {
-        for (int dy = 0; dy <= 1; dy++) {
-            int cx = x + dx;
-            int cy = y + dy;
-            if (entities[cx][cy] == nullptr) return false;
-            std::string name = entities[cx][cy]->getName();
-            if (name == "DirtRoad") {
-                if (outReason) *outReason = "Blocked by Road!";
-                return false;
-            }
-            if (name == "WaterTile") {
-                if (outReason) *outReason = "Blocked by Water!";
-                return false;
-            }
-            if (name != "GrassTile") {
-                if (outReason) *outReason = "Lot Occupied — Bulldoze First!";
-                return false;
-            }
+    for (int k = 0; k < 4; k++) {
+        int cx = x + diamondOffsets[k].x;
+        int cy = y + diamondOffsets[k].y;
+        if (cx < 0 || cx >= tileMapW || cy < 0 || cy >= tileMapH || entities[cx][cy] == nullptr) return false;
+        std::string name = entities[cx][cy]->getName();
+        if (name == "DirtRoad") {
+            if (outReason) *outReason = "Blocked by Road!";
+            return false;
+        }
+        if (name == "WaterTile") {
+            if (outReason) *outReason = "Blocked by Water!";
+            return false;
+        }
+        if (name != "GrassTile") {
+            if (outReason) *outReason = "Lot Occupied — Bulldoze First!";
+            return false;
         }
     }
 
-    // Check perimeter adjacency (tiles bordering the 2x2 lot)
+    // Check perimeter adjacency (tiles bordering the true 2x2 diamond)
     bool touchesRoad = false;
     bool touchesWater = false;
 
@@ -562,21 +563,28 @@ bool Play_Scene::canPlaceTile(int x, int y, BuildTool tool, std::string* outReas
         if (n == "WaterTile") touchesWater = true;
     };
 
-    // 8 edge-adjacent tiles around 2x2 lot:
-    checkPerim(x - 1, y);
-    checkPerim(x - 1, y + 1);
-    checkPerim(x + 2, y);
-    checkPerim(x + 2, y + 1);
-    checkPerim(x, y - 1);
-    checkPerim(x + 1, y - 1);
-    checkPerim(x, y + 2);
-    checkPerim(x + 1, y + 2);
-
-    // 4 corner tiles
-    checkPerim(x - 1, y - 1);
-    checkPerim(x + 2, y - 1);
-    checkPerim(x - 1, y + 2);
-    checkPerim(x + 2, y + 2);
+    // Check all neighboring tiles surrounding the 4 footprint tiles
+    for (int k = 0; k < 4; k++) {
+        int fx = x + diamondOffsets[k].x;
+        int fy = y + diamondOffsets[k].y;
+        for (int di = -1; di <= 1; di++) {
+            for (int dj = -1; dj <= 1; dj++) {
+                if (di == 0 && dj == 0) continue;
+                int nx = fx + di;
+                int ny = fy + dj;
+                bool inFootprint = false;
+                for (int m = 0; m < 4; m++) {
+                    if (nx == x + diamondOffsets[m].x && ny == y + diamondOffsets[m].y) {
+                        inFootprint = true;
+                        break;
+                    }
+                }
+                if (!inFootprint) {
+                    checkPerim(nx, ny);
+                }
+            }
+        }
+    }
 
     if (tool == TOOL_HARBOUR) {
         if (!touchesWater) {
@@ -619,12 +627,13 @@ void Play_Scene::placeTile(int x, int y, BuildTool tool) {
         if (z != NULL && z->isMultiTile) {
             int rx = z->isSubTile ? z->rootX : tx;
             int ry = z->isSubTile ? z->rootY : ty;
-            if (rx >= 0 && rx + 1 < tileMapW && ry >= 0 && ry + 1 < tileMapH) {
-                for (int dx = 0; dx <= 1; dx++) {
-                    for (int dy = 0; dy <= 1; dy++) {
-                        delete entities[rx + dx][ry + dy];
-                        entities[rx + dx][ry + dy] = new GrassTile(rx + dx, ry + dy);
-                    }
+            const sf::Vector2i dOffsets[4] = {{0, 0}, {1, 0}, {-1, 1}, {0, 1}};
+            for (int k = 0; k < 4; k++) {
+                int cx = rx + dOffsets[k].x;
+                int cy = ry + dOffsets[k].y;
+                if (cx >= 0 && cx < tileMapW && cy >= 0 && cy < tileMapH) {
+                    delete entities[cx][cy];
+                    entities[cx][cy] = new GrassTile(cx, cy);
                 }
             }
         } else {
@@ -655,12 +664,13 @@ void Play_Scene::placeTile(int x, int y, BuildTool tool) {
         return;
     }
 
-    // 2x2 Structures: clear the 4 grass tiles
-    for (int dx = 0; dx <= 1; dx++) {
-        for (int dy = 0; dy <= 1; dy++) {
-            delete entities[x + dx][y + dy];
-            entities[x + dx][y + dy] = NULL;
-        }
+    // 2x2 Structures: clear the 4 grass tiles (True 2x2 Diamond)
+    const sf::Vector2i dOffsets[4] = {{0, 0}, {1, 0}, {-1, 1}, {0, 1}};
+    for (int k = 0; k < 4; k++) {
+        int cx = x + dOffsets[k].x;
+        int cy = y + dOffsets[k].y;
+        delete entities[cx][cy];
+        entities[cx][cy] = NULL;
     }
 
     money -= cost;
@@ -751,8 +761,8 @@ void Play_Scene::placeTile(int x, int y, BuildTool tool) {
 
     entities[x][y] = masterZone;
     entities[x + 1][y]     = new SubZone(x + 1, y,     x, y, typeName, zoneBase);
+    entities[x - 1][y + 1] = new SubZone(x - 1, y + 1, x, y, typeName, zoneBase);
     entities[x][y + 1]     = new SubZone(x,     y + 1, x, y, typeName, zoneBase);
-    entities[x + 1][y + 1] = new SubZone(x + 1, y + 1, x, y, typeName, zoneBase);
 }
 
 void Play_Scene::executeMultibuild() {
@@ -928,14 +938,11 @@ void Play_Scene::renderDragPreview() {
                 if (z != NULL && z->isMultiTile) {
                     int rx = z->isSubTile ? z->rootX : gx;
                     int ry = z->isSubTile ? z->rootY : gy;
-                    if (rx >= 0 && rx + 1 < tileMapW && ry >= 0 && ry + 1 < tileMapH) {
-                        for (int dx = 0; dx <= 1; dx++) {
-                            for (int dy = 0; dy <= 1; dy++) {
-                                highlightTile(rx + dx, ry + dy, sf::Color(231, 76, 60, 130), sf::Color(231, 76, 60, 245));
-                            }
-                        }
-                        continue;
+                    const sf::Vector2i dOffsets[4] = {{0, 0}, {1, 0}, {-1, 1}, {0, 1}};
+                    for (int k = 0; k < 4; k++) {
+                        highlightTile(rx + dOffsets[k].x, ry + dOffsets[k].y, sf::Color(231, 76, 60, 130), sf::Color(231, 76, 60, 245));
                     }
+                    continue;
                 }
                 bool canBulldoze = (entities[gx][gy]->getName() != "GrassTile");
                 sf::Color fillCol = canBulldoze ? sf::Color(231, 76, 60, 130) : sf::Color(120, 120, 120, 60);
@@ -946,11 +953,11 @@ void Play_Scene::renderDragPreview() {
         return;
     }
 
-    // 2x2 Building Tools: Show individual 2:1 isometric diamond highlights and ghost building
+    // 2x2 Building Tools: Show individual 2:1 isometric diamond highlights and ghost building (True 2x2 Diamond)
     int gx = isDragging ? dragCurrent.x : tileX;
     int gy = isDragging ? dragCurrent.y : tileY;
 
-    if (gx >= 0 && gx + 1 < tileMapW && gy >= 0 && gy + 1 < tileMapH) {
+    if (gx >= 1 && gx + 1 < tileMapW && gy >= 0 && gy + 1 < tileMapH) {
         if (entities[gx][gy] != NULL && entities[gx][gy]->position != NULL) {
             float px = entities[gx][gy]->position->x;
             float py = entities[gx][gy]->position->y;
@@ -960,11 +967,10 @@ void Play_Scene::renderDragPreview() {
             sf::Color fillCol = ok ? sf::Color(46, 204, 113, 85) : sf::Color(231, 76, 60, 110);
             sf::Color outCol = ok ? sf::Color(46, 204, 113, 230) : sf::Color(231, 76, 60, 245);
 
-            // Highlight all 4 constituent 2:1 isometric tile diamonds
-            for (int dx = 0; dx <= 1; dx++) {
-                for (int dy = 0; dy <= 1; dy++) {
-                    highlightTile(gx + dx, gy + dy, fillCol, outCol);
-                }
+            // Highlight all 4 constituent 2:1 isometric tile diamonds (True 2x2 Diamond)
+            const sf::Vector2i dOffsets[4] = {{0, 0}, {1, 0}, {-1, 1}, {0, 1}};
+            for (int k = 0; k < 4; k++) {
+                highlightTile(gx + dOffsets[k].x, gy + dOffsets[k].y, fillCol, outCol);
             }
 
             std::string textureKey = "";
@@ -998,7 +1004,7 @@ void Play_Scene::renderDragPreview() {
                 }
                 ghostSprite.setScale(2.f, 2.f);
                 ghostSprite.setColor(ok ? sf::Color(255, 255, 255, 195) : sf::Color(255, 120, 120, 150));
-                ghostSprite.setPosition(px, py);
+                ghostSprite.setPosition(px - 16.f, py);
                 _window.draw(ghostSprite);
             }
         }
@@ -1266,20 +1272,21 @@ void Play_Scene::buildTestWorld() {
     };
 
     auto set2x2 = [&](int rx, int ry, BuildTool tool, int tier = 1, int variant = 1) {
-        if (rx < 0 || rx + 1 >= tileMapW || ry < 0 || ry + 1 >= tileMapH) return;
+        if (rx < 1 || rx + 1 >= tileMapW || ry < 0 || ry + 1 >= tileMapH) return;
+        const sf::Vector2i dOffsets[4] = {{0, 0}, {1, 0}, {-1, 1}, {0, 1}};
         // Never overwrite existing road infrastructure
-        for (int dx = 0; dx <= 1; dx++) {
-            for (int dy = 0; dy <= 1; dy++) {
-                if (entities[rx + dx][ry + dy] != NULL && entities[rx + dx][ry + dy]->getName() == "DirtRoad") {
-                    return;
-                }
+        for (int k = 0; k < 4; k++) {
+            int cx = rx + dOffsets[k].x;
+            int cy = ry + dOffsets[k].y;
+            if (entities[cx][cy] != NULL && entities[cx][cy]->getName() == "DirtRoad") {
+                return;
             }
         }
-        for (int dx = 0; dx <= 1; dx++) {
-            for (int dy = 0; dy <= 1; dy++) {
-                delete entities[rx + dx][ry + dy];
-                entities[rx + dx][ry + dy] = NULL;
-            }
+        for (int k = 0; k < 4; k++) {
+            int cx = rx + dOffsets[k].x;
+            int cy = ry + dOffsets[k].y;
+            delete entities[cx][cy];
+            entities[cx][cy] = NULL;
         }
         Zone* mz = NULL;
         std::string baseTex = "grass";
@@ -1317,8 +1324,8 @@ void Play_Scene::buildTestWorld() {
         if (mz != NULL) {
             entities[rx][ry] = mz;
             entities[rx + 1][ry]     = new SubZone(rx + 1, ry,     rx, ry, typeName, baseTex);
+            entities[rx - 1][ry + 1] = new SubZone(rx - 1, ry + 1, rx, ry, typeName, baseTex);
             entities[rx][ry + 1]     = new SubZone(rx,     ry + 1, rx, ry, typeName, baseTex);
-            entities[rx + 1][ry + 1] = new SubZone(rx + 1, ry + 1, rx, ry, typeName, baseTex);
         }
     };
 

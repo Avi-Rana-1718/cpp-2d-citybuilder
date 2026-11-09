@@ -134,7 +134,7 @@ inline void ResidentalZone::drawGround(sf::RenderWindow& window) {
 
 inline void ResidentalZone::drawBuilding(sf::RenderWindow& window) {
     if (buildingSprite != NULL) {
-        buildingSprite->setPosition(position->x, position->y);
+        buildingSprite->setPosition(position->x - 16.f, position->y);
         buildingSprite->setColor(isActive ? sf::Color(255, 255, 255, 255) : sf::Color(215, 215, 215, 175));
         window.draw(*buildingSprite);
     }
@@ -143,8 +143,8 @@ inline void ResidentalZone::drawBuilding(sf::RenderWindow& window) {
 inline void ResidentalZone::checkValid() {
     bool hasRoadOrActive = false;
 
-    // Check perimeter (from posX-1 to posX+2, posY-1 to posY+2)
-    for (int i = posX - 1; i <= posX + 2; i++) {
+    // Check perimeter around true 2x2 diamond
+    for (int i = posX - 2; i <= posX + 2; i++) {
         if (i < 0 || i >= tileMapW) continue;
         for (int j = posY - 1; j <= posY + 2; j++) {
             if (j < 0 || j >= tileMapH || entities[i][j] == NULL) continue;

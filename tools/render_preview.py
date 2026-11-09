@@ -41,15 +41,14 @@ def render_preview():
             ground[x][y] = "road"
             
     def set_2x2(rx, ry, bld_key, base_key):
-        if 0 <= rx < GRID_W - 1 and 0 <= ry < GRID_H - 1:
-            for dx in range(2):
-                for dy in range(2):
-                    if ground[rx + dx][ry + dy] == "road":
-                        return
+        offsets = [(0, 0), (1, 0), (-1, 1), (0, 1)]
+        if 1 <= rx < GRID_W - 1 and 0 <= ry < GRID_H - 1:
+            for dx, dy in offsets:
+                if ground[rx + dx][ry + dy] == "road":
+                    return
             buildings[rx][ry] = bld_key
-            for dx in range(2):
-                for dy in range(2):
-                    ground[rx + dx][ry + dy] = base_key
+            for dx, dy in offsets:
+                ground[rx + dx][ry + dy] = base_key
 
     # 1. 1x1 Roads Network Across 64x64 Metropolis (100% Flush Edge-Sharing)
     # 8 Major Horizontal Avenues (Axis 1: East/Down-Right along +X)
@@ -203,7 +202,7 @@ def render_preview():
                 b_key = buildings[i][j]
                 if b_key is not None and b_key in scaled:
                     b_sp = scaled[b_key]
-                    px = 32 * i + 50
+                    px = 32 * i - 16 + 50
                     py = 32 * j + 16 * i + 50
                     draw_y = py + 80 - b_sp.height
                     canvas.alpha_composite(b_sp, (px, draw_y))

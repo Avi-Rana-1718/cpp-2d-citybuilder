@@ -68,7 +68,7 @@ inline void ParkZone::drawGround(sf::RenderWindow& window) {
 
 inline void ParkZone::drawBuilding(sf::RenderWindow& window) {
     if (buildingSprite != NULL) {
-        buildingSprite->setPosition(position->x, position->y);
+        buildingSprite->setPosition(position->x - 16.f, position->y);
         window.draw(*buildingSprite);
     }
 }

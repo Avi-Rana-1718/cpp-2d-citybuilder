@@ -135,7 +135,7 @@ inline void IndustrialZone::drawGround(sf::RenderWindow& window) {
 
 inline void IndustrialZone::drawBuilding(sf::RenderWindow& window) {
     if (buildingSprite != NULL) {
-        buildingSprite->setPosition(position->x, position->y);
+        buildingSprite->setPosition(position->x - 16.f, position->y);
         buildingSprite->setColor(isActive ? sf::Color(255, 255, 255, 255) : sf::Color(215, 215, 215, 175));
         window.draw(*buildingSprite);
     }
@@ -143,7 +143,7 @@ inline void IndustrialZone::drawBuilding(sf::RenderWindow& window) {
 
 inline void IndustrialZone::checkValid() {
     bool hasRoad = false;
-    for (int i = posX - 1; i <= posX + 2; i++) {
+    for (int i = posX - 2; i <= posX + 2; i++) {
         if (i < 0 || i >= tileMapW) continue;
         for (int j = posY - 1; j <= posY + 2; j++) {
             if (j < 0 || j >= tileMapH || entities[i][j] == NULL) continue;

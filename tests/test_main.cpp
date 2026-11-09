@@ -778,8 +778,8 @@ TEST_CASE(Test_Zone_SameBaseTextureAcrossSubZones) {
 
     ResidentalZone res(2, 2);
     SubZone sub1(3, 2, 2, 2, "ResidentalZone", "zone_residental");
-    SubZone sub2(2, 3, 2, 2, "ResidentalZone", "zone_residental");
-    SubZone sub3(3, 3, 2, 2, "ResidentalZone", "zone_residental");
+    SubZone sub2(1, 3, 2, 2, "ResidentalZone", "zone_residental");
+    SubZone sub3(2, 3, 2, 2, "ResidentalZone", "zone_residental");
 
     ASSERT_EQ(res.zoneBaseTexture, "zone_residental");
     ASSERT_EQ(sub1.zoneBaseTexture, "zone_residental");
@@ -797,18 +797,18 @@ TEST_CASE(Test_Demolition_RestoresGrassTile) {
     clearTestGrid();
     ScopedCoutSilence silence;
 
-    // Simulate 2x2 multi-tile placement at (4, 4)
+    // Simulate 2x2 multi-tile placement at (4, 4) (True 2x2 Diamond)
     int rx = 4, ry = 4;
-    delete entities[rx][ry];
-    delete entities[rx + 1][ry];
-    delete entities[rx][ry + 1];
-    delete entities[rx + 1][ry + 1];
+    const sf::Vector2i dOffsets[4] = {{0, 0}, {1, 0}, {-1, 1}, {0, 1}};
+    for (int k = 0; k < 4; k++) {
+        delete entities[rx + dOffsets[k].x][ry + dOffsets[k].y];
+    }
 
     SchoolZone* school = new SchoolZone(rx, ry);
     entities[rx][ry] = school;
     entities[rx + 1][ry]     = new SubZone(rx + 1, ry,     rx, ry, "SchoolZone", "grass");
+    entities[rx - 1][ry + 1] = new SubZone(rx - 1, ry + 1, rx, ry, "SchoolZone", "grass");
     entities[rx][ry + 1]     = new SubZone(rx,     ry + 1, rx, ry, "SchoolZone", "grass");
-    entities[rx + 1][ry + 1] = new SubZone(rx + 1, ry + 1, rx, ry, "SchoolZone", "grass");
 
     // Road adjacent to perimeter at (6, 4)
     delete entities[6][4];
@@ -817,26 +817,24 @@ TEST_CASE(Test_Demolition_RestoresGrassTile) {
     school->checkValid();
     ASSERT_TRUE(school->isActive);
 
-    // Bulldoze one child tile at (5, 5) -> multi-tile demolition restores all 4 to GrassTile
-    Zone* z = dynamic_cast<Zone*>(entities[rx + 1][ry + 1]);
+    // Bulldoze one child tile at (4, 5) -> multi-tile demolition restores all 4 to GrassTile
+    Zone* z = dynamic_cast<Zone*>(entities[rx][ry + 1]);
     ASSERT_TRUE(z != NULL && z->isMultiTile);
-    int rootX = z->isSubTile ? z->rootX : (rx + 1);
-    int rootY = z->isSubTile ? z->rootY : (ry + 1);
+    int rootX = z->isSubTile ? z->rootX : rx;
+    int rootY = z->isSubTile ? z->rootY : ry;
     ASSERT_EQ(rootX, rx);
     ASSERT_EQ(rootY, ry);
 
-    for (int dx = 0; dx <= 1; dx++) {
-        for (int dy = 0; dy <= 1; dy++) {
-            delete entities[rootX + dx][rootY + dy];
-            entities[rootX + dx][rootY + dy] = new GrassTile(rootX + dx, rootY + dy);
-        }
+    for (int k = 0; k < 4; k++) {
+        int cx = rootX + dOffsets[k].x;
+        int cy = rootY + dOffsets[k].y;
+        delete entities[cx][cy];
+        entities[cx][cy] = new GrassTile(cx, cy);
     }
 
     // Verify all 4 tiles are restored to GrassTile
-    for (int dx = 0; dx <= 1; dx++) {
-        for (int dy = 0; dy <= 1; dy++) {
-            ASSERT_EQ(entities[rx + dx][ry + dy]->getName(), "GrassTile");
-        }
+    for (int k = 0; k < 4; k++) {
+        ASSERT_EQ(entities[rx + dOffsets[k].x][ry + dOffsets[k].y]->getName(), "GrassTile");
     }
 
     clearTestGrid();
@@ -850,16 +848,16 @@ TEST_CASE(Test_World_FullBuildingCoverage) {
     delete entities[2][2]; entities[2][2] = new DirtRoad(2, 2);
 
     int rx = 3, ry = 2;
-    delete entities[rx][ry];
-    delete entities[rx + 1][ry];
-    delete entities[rx][ry + 1];
-    delete entities[rx + 1][ry + 1];
+    const sf::Vector2i dOffsets[4] = {{0, 0}, {1, 0}, {-1, 1}, {0, 1}};
+    for (int k = 0; k < 4; k++) {
+        delete entities[rx + dOffsets[k].x][ry + dOffsets[k].y];
+    }
 
     ResidentalZone* rz = new ResidentalZone(rx, ry);
     entities[rx][ry] = rz;
     entities[rx + 1][ry]     = new SubZone(rx + 1, ry,     rx, ry, "ResidentalZone", "zone_residental");
+    entities[rx - 1][ry + 1] = new SubZone(rx - 1, ry + 1, rx, ry, "ResidentalZone", "zone_residental");
     entities[rx][ry + 1]     = new SubZone(rx,     ry + 1, rx, ry, "ResidentalZone", "zone_residental");
-    entities[rx + 1][ry + 1] = new SubZone(rx + 1, ry + 1, rx, ry, "ResidentalZone", "zone_residental");
 
     rz->checkValid();
     ASSERT_TRUE(rz->isActive);
@@ -867,16 +865,15 @@ TEST_CASE(Test_World_FullBuildingCoverage) {
     // Place water and adjacent Harbour
     delete entities[10][2]; entities[10][2] = new WaterTile(10, 2);
     int hx = 8, hy = 1;
-    delete entities[hx][hy];
-    delete entities[hx + 1][hy];
-    delete entities[hx][hy + 1];
-    delete entities[hx + 1][hy + 1];
+    for (int k = 0; k < 4; k++) {
+        delete entities[hx + dOffsets[k].x][hy + dOffsets[k].y];
+    }
 
     HarbourZone* hb = new HarbourZone(hx, hy);
     entities[hx][hy] = hb;
     entities[hx + 1][hy]     = new SubZone(hx + 1, hy,     hx, hy, "HarbourZone", "grass");
+    entities[hx - 1][hy + 1] = new SubZone(hx - 1, hy + 1, hx, hy, "HarbourZone", "grass");
     entities[hx][hy + 1]     = new SubZone(hx,     hy + 1, hx, hy, "HarbourZone", "grass");
-    entities[hx + 1][hy + 1] = new SubZone(hx + 1, hy + 1, hx, hy, "HarbourZone", "grass");
 
     hb->checkValid();
     ASSERT_TRUE(hb->isActive);
@@ -898,9 +895,9 @@ TEST_CASE(Test_TheoTown_CannotBuildOnRoad) {
     delete entities[5][5];
     entities[5][5] = new DirtRoad(5, 5);
 
-    // Try to place a 2x2 building covering (4, 4) to (5, 5)
+    // Try to place a 2x2 building at (5, 4) whose bottom diamond tile lands on (5, 5)
     std::string reason = "";
-    bool canBuild = scene.canPlaceTile(4, 4, TOOL_RES_COTTAGES, &reason);
+    bool canBuild = scene.canPlaceTile(5, 4, TOOL_RES_COTTAGES, &reason);
     ASSERT_FALSE(canBuild);
     ASSERT_TRUE(reason.find("Blocked by Road") != std::string::npos);
 
@@ -924,9 +921,9 @@ TEST_CASE(Test_TheoTown_CannotBuildOnWater) {
     delete entities[6][6];
     entities[6][6] = new WaterTile(6, 6);
 
-    // Try to place a 2x2 building covering (5, 5) to (6, 6)
+    // Try to place a 2x2 building at (6, 5) whose bottom diamond tile lands on (6, 6)
     std::string reason = "";
-    bool canBuild = scene.canPlaceTile(5, 5, TOOL_COM_GROCERY, &reason);
+    bool canBuild = scene.canPlaceTile(6, 5, TOOL_COM_GROCERY, &reason);
     ASSERT_FALSE(canBuild);
     ASSERT_TRUE(reason.find("Blocked by Water") != std::string::npos);
 
