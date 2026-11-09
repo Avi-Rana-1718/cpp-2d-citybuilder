@@ -3,6 +3,7 @@
 #include <cmath>
 #include <functional>
 #include <cstdlib>
+#include <cstdio>
 
 #include "game/main.hpp"
 
@@ -14,6 +15,8 @@ int main(int argc, char** argv)
         if (arg == "--headless") headless = true;
         else if (arg == "--show") forceShow = true;
         else if (arg == "--bench-city") benchCity = true;
+        else if (arg == "--bench-town") benchTown = true;
+        else if (arg == "--budget") startBudget = true;
     }
 
     // --seed N generates a reproducible world; omitted or 0 = random
@@ -35,6 +38,15 @@ int main(int argc, char** argv)
         } else if (std::string(argv[i]) == "--inspect" && i + 2 < argc) {
             startInspectX = std::atoi(argv[i + 1]);
             startInspectY = std::atoi(argv[i + 2]);
+        } else if (std::string(argv[i]) == "--fast-forward") {
+            fastForwardDays = std::atoi(argv[i + 1]);
+        } else if (std::string(argv[i]) == "--size") {
+            // --size 1920x1080: requested window size (still fitted to the desktop)
+            int w = 0, h = 0;
+            if (std::sscanf(argv[i + 1], "%dx%d", &w, &h) == 2 && w >= MIN_WINDOW_W && h >= MIN_WINDOW_H) {
+                preferredW = w;
+                preferredH = h;
+            }
         } else if (std::string(argv[i]) == "--zoom") {
             startZoom = static_cast<float>(std::atof(argv[i + 1]));
         }

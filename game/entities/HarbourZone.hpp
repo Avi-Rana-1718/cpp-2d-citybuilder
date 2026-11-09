@@ -12,7 +12,9 @@ public:
     void drawGround(sf::RenderWindow& window) override;
     void drawBuilding(sf::RenderWindow& window) override;
     void checkValid() override;
-    float dailyTax() const override;
+    int sector() const override { return SECTOR_C; }
+    int wealth() const override { return WEALTH_MID; }
+    int dailyUpkeep() const override { return UPKEEP_HARBOUR; }
 };
 
 inline HarbourZone::HarbourZone(int posX, int posY) {
@@ -27,6 +29,7 @@ inline HarbourZone::HarbourZone(int posX, int posY) {
 
     level = 0;
     zoneIncome = 120;
+    capacity = 30; // port jobs
 
     this->posX = posX;
     this->posY = posY;
@@ -80,8 +83,3 @@ inline void HarbourZone::checkValid() {
     isActive = hasAdjacentRoad(posX, posY) && hasAdjacentWater(posX, posY);
 }
 
-// Daily tax: income x sector tax rate
-inline float HarbourZone::dailyTax() const {
-    if (!isActive) return 0.f;
-    return static_cast<float>(zoneIncome) * (static_cast<float>(townTaxes[1]) / 100.f);
-}

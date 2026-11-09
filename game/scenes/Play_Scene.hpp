@@ -25,6 +25,7 @@
 #include "../world/GroundRenderer.hpp"
 #include "../simulation/HappinessSystem.hpp"
 #include "../simulation/GameClock.hpp"
+#include "../simulation/Economy.hpp"
 #include "../ui/Window.hpp"
 #include "../ui/UiKit.hpp"
 #include "../ui/Toolbar.hpp"
@@ -67,7 +68,14 @@ class Play_Scene : public Scene {
 
     // TheoTown Top Bar & Info Card State
     int lastDailyIncome = 0;   // tax credited on the most recent game day
-    float taxCarry = 0.f;      // fractional dollars carried to the next day
+    // Budget panel and economy UI state
+    bool budgetOpen = false;
+    int activeSlider = -1;           // sector * 3 + wealth while dragging a tax slider
+    int hoveredBucket = -1;          // budget row under the mouse (for the demand hint)
+    bool budgetMouseWasDown = false;
+    bool wasBudgetKey = false;
+    bool wasNewCityKey = false;
+    bool toastIsError = true;
 
     // Edge-triggered time hotkeys
     bool wasPauseKey = false;
@@ -91,6 +99,7 @@ public:
     ~Play_Scene();
     void init() override;
     void update(float deltaTime) override;
+    void onResize(unsigned width, unsigned height) override;
 
     bool canPlaceTile(int x, int y, BuildTool tool, std::string* outReason = nullptr) const;
     int getToolCost(BuildTool tool) const;
@@ -105,6 +114,7 @@ public:
     void refreshRoadsAround(int x, int y);
     void refreshBuildingsAround(int x, int y);
     int buildBenchCity();
+    int buildBenchTown();
     void runSimulationTick();
 
     // ---- Time ----
@@ -112,8 +122,25 @@ public:
     // taxes and grow population, simulation ticks run per game second.
     void advanceTime(float realSeconds);
     void runNewDay();
-    int collectDailyTaxes();
     int getLastDailyIncome() const { return lastDailyIncome; }
+
+    // ---- Economy ----
+    EconomySystem economy;
+    void startNewCity(uint32_t seed);
+    void showToast(const std::string& msg, bool isError);
+
+    // Budget panel (open with B or by clicking the money chip)
+    bool isBudgetOpen() const { return budgetOpen; }
+    void setBudgetOpen(bool open) { budgetOpen = open; activeSlider = -1; }
+    sf::FloatRect moneyChipBounds() const { return sf::FloatRect(150.f + uikit::topBarShift(), 6.f, 200.f, 36.f); }
+    sf::FloatRect budgetBounds() const;
+    sf::FloatRect budgetCloseBounds() const;
+    sf::FloatRect taxSliderBounds(int sector, int wealth) const;
+    sf::FloatRect loanButtonBounds() const;
+    sf::FloatRect newCityButtonBounds() const;
+    int taxFromSliderX(int sector, int wealth, float x) const;
+    // Mouse on the budget panel: press / drag / release. Returns true when it used the input.
+    bool handleBudgetPointer(const sf::Vector2f& p, bool down, bool justPressed);
     sf::FloatRect speedButtonBounds(int speedIndex) const;
     bool handleSpeedClick(const sf::Vector2f& point);
 
@@ -133,7 +160,8 @@ private:
     void renderHUD(float deltaTime);
 
     void refreshUI();
-    void populateCity();
+    void renderBudget(const sf::Vector2f& mouse);
+    void renderGameOver(const sf::Vector2f& mouse);
 
     std::vector<sf::Vector2i> computeDragTiles() const;
     void executeMultibuild();
@@ -147,10 +175,6 @@ Play_Scene::~Play_Scene() {
 void Play_Scene::init() {
     std::cout << "Scene created with name: Play_Scene\n";
 
-    townDemand[0] = 1000;
-    townDemand[1] = 500;
-    townDemand[2] = 400;
-    money = 50000;
     lastActionTime = 0.f;
 
     // Legacy Window pointers preserved for backwards compatibility and test stability
@@ -182,38 +206,95 @@ void Play_Scene::init() {
     player = new Player;
 
     // Procedural world: seed from --seed, or random when unset
-    if (worldSeed == 0) {
-        std::random_device rd;
-        worldSeed = rd() ^ static_cast<uint32_t>(std::time(nullptr));
-        if (worldSeed == 0) worldSeed = 1;
-    }
-    generateWorld(worldSeed);
-    materializeWorld(); // no structures yet: the whole map is natural ground
-    ground.markDirty();
-    ground.setSeasonLook(seasonLookAt(gameClock.getSeason(), gameClock.seasonProgress()));
-    std::cout << "\nWorld generated with seed: " << worldSeed
-              << " (spawn " << worldSpawnX << ", " << worldSpawnY << ")\n";
+    startNewCity(worldSeed);
     if (benchCity) {
         int built = buildBenchCity();
         std::cout << "\nBench city: " << built << " buildings\n";
     }
+    if (benchTown) {
+        int built = buildBenchTown();
+        std::cout << "\nBench town: " << built << " buildings\n";
+    }
     happinessSystem.updateSimulation();
 
     // Initialize TheoTown bottom dock
-    toolbar.init(static_cast<float>(WINDOW_W), static_cast<float>(WINDOW_H));
+    toolbar.init(uikit::SW(), uikit::SH());
 
     // Screenshot helpers (see --menu / --inspect / --view)
     if (startMenu >= 1 && startMenu <= 5) toolbar.openFlyout(static_cast<ToolbarCategory>(startMenu));
     if (inWorldBounds(startInspectX, startInspectY)) { tileX = startInspectX; tileY = startInspectY; }
     setOverlayMode(startView);
+    if (startBudget) setBudgetOpen(true);
 
-    // Center camera on the guaranteed spawn area
+    // Balance testing: simulate N days instantly and print the trend (--fast-forward N)
+    if (fastForwardDays > 0) {
+        for (int d = 1; d <= fastForwardDays && !economy.bankrupt; d++) {
+            advanceTime(GameClock::SECONDS_PER_DAY);
+            if (d % 30 == 0 || d == fastForwardDays) {
+                std::printf("day %4d  money %8d  net/day %6d  pop R %d/%d/%d  jobs C %d/%d/%d I %d/%d/%d  "
+                            "demand R %+.0f/%+.0f/%+.0f C %+.0f/%+.0f/%+.0f I %+.0f/%+.0f/%+.0f  happy %d  debt %d\n",
+                            d, money, lastDailyIncome,
+                            economy.occupants[0][0], economy.occupants[0][1], economy.occupants[0][2],
+                            economy.occupants[1][0], economy.occupants[1][1], economy.occupants[1][2],
+                            economy.occupants[2][0], economy.occupants[2][1], economy.occupants[2][2],
+                            economy.demand[0][0], economy.demand[0][1], economy.demand[0][2],
+                            economy.demand[1][0], economy.demand[1][1], economy.demand[1][2],
+                            economy.demand[2][0], economy.demand[2][1], economy.demand[2][2],
+                            happinessSystem.cityHappiness, economy.daysInDebt);
+            }
+        }
+        if (economy.bankrupt) std::printf("BANKRUPT\n");
+        std::fflush(stdout);
+    }
+}
+
+// Generates a fresh world and resets money, economy and taxes; the camera
+// moves to the new spawn. Used at start-up and after bankruptcy.
+void Play_Scene::startNewCity(uint32_t seed) {
+    if (seed == 0) {
+        std::random_device rd;
+        seed = rd() ^ static_cast<uint32_t>(std::time(nullptr));
+        if (seed == 0) seed = 1;
+    }
+    worldSeed = seed;
+    materializeWorld();   // delete every structure first
+    generateWorld(worldSeed);
+    ground.markDirty();
+    ground.setSeasonLook(seasonLookAt(gameClock.getSeason(), gameClock.seasonProgress()));
+    std::cout << "\nWorld generated with seed: " << worldSeed
+              << " (spawn " << worldSpawnX << ", " << worldSpawnY << ")\n";
+
+    money = STARTING_MONEY;
+    lastDailyIncome = 0;
+    simAccumulator = 0.f;
+    economy.reset();
+    resetTaxRates();
+    for (int i = 0; i < 3; i++) { townPopulation[i] = 0; townCapacity[i] = 0; townDemand[i] = 0; }
+    happinessSystem = HappinessSystem();
+    happinessSystem.updateSimulation();
+    setBudgetOpen(false);
+    placementErrorTimer = 0.f;
+
     currentZoom = std::max(0.4f, std::min(3.2f, startZoom));
-    view.setSize(sf::Vector2f(static_cast<float>(WINDOW_W) * currentZoom, static_cast<float>(WINDOW_H) * currentZoom));
-    float spawnPx = static_cast<float>(tileSizeX * worldSpawnX - worldSpawnX * (tileSizeX / 2)) + tileSizeX / 2.f;
-    float spawnPy = static_cast<float>(tileSizeY * worldSpawnY + worldSpawnX * (tileSizeY / 2)) + tileSizeY / 2.f;
-    view.setCenter(sf::Vector2f(spawnPx, spawnPy));
+    view.setSize(sf::Vector2f(uikit::SW() * currentZoom, uikit::SH() * currentZoom));
+    sf::Vector2f spawn = tileScreenPos(worldSpawnX, worldSpawnY);
+    view.setCenter(sf::Vector2f(spawn.x + tileSizeX / 2.f, spawn.y + tileSizeY / 2.f));
     _window.setView(view);
+}
+
+// Window resized: the camera shows more / less of the map (no stretching)
+// and the HUD re-anchors to the new edges.
+void Play_Scene::onResize(unsigned width, unsigned height) {
+    screenW = static_cast<int>(width);
+    screenH = static_cast<int>(height);
+    view.setSize(uikit::SW() * currentZoom, uikit::SH() * currentZoom);
+    toolbar.init(uikit::SW(), uikit::SH());
+}
+
+void Play_Scene::showToast(const std::string& msg, bool isError) {
+    lastPlacementError = msg;
+    toastIsError = isError;
+    placementErrorTimer = isError ? 2.5f : 4.f;
 }
 
 void Play_Scene::update(float deltaTime) {
@@ -228,31 +309,60 @@ void Play_Scene::update(float deltaTime) {
     const bool focused = _window.hasFocus();
     if (focused) {
         handleCameraMovement(deltaTime);
-        handleToolHotkeys();
+        if (!economy.bankrupt) handleToolHotkeys();
+
+        // B toggles the budget; N founds a new city after bankruptcy
+        bool budgetKey = sf::Keyboard::isKeyPressed(sf::Keyboard::B);
+        if (budgetKey && !wasBudgetKey && !economy.bankrupt) setBudgetOpen(!budgetOpen);
+        wasBudgetKey = budgetKey;
+        bool newCityKey = sf::Keyboard::isKeyPressed(sf::Keyboard::N);
+        if (newCityKey && !wasNewCityKey && economy.bankrupt) {
+            gameClock = GameClock();
+            startNewCity(0);
+            toolbar.setActiveTool(TOOL_NONE);
+        }
+        wasNewCityKey = newCityKey;
     }
 
+    // Window pixels for the world (mapped through the camera later), HUD
+    // coordinates for the interface (the HUD is stretched with the window)
     sf::Vector2i mousePixel = sf::Mouse::getPosition(_window);
-    sf::Vector2f mousePixelF(static_cast<float>(mousePixel.x), static_cast<float>(mousePixel.y));
+    sf::Vector2f mousePixelF = uikit::hudFromPixel(mousePixel, _window.getSize());
 
     // Check if mouse is interacting with UI elements
     bool overViewPanel = viewPanelBounds().contains(mousePixelF);
-    bool mouseOverUI = !focused || toolbar.contains(mousePixelF) || overViewPanel || (mousePixelF.y <= 50.f) ||
-                       inspectCardRect.contains(mousePixelF);
+    bool overBudget = budgetOpen && budgetBounds().contains(mousePixelF);
+    bool mouseOverUI = !focused || economy.bankrupt || toolbar.contains(mousePixelF) || overViewPanel ||
+                       (mousePixelF.y <= 50.f) || inspectCardRect.contains(mousePixelF) || overBudget;
 
     bool isLeftPressed = focused && sf::Mouse::isButtonPressed(sf::Mouse::Left);
-    if (isLeftPressed && !wasLeftPressed && mouseOverUI) {
+    bool justPressed = isLeftPressed && !budgetMouseWasDown;
+    budgetMouseWasDown = isLeftPressed;
+
+    if (economy.bankrupt) {
+        if (justPressed && newCityButtonBounds().contains(mousePixelF)) {
+            gameClock = GameClock();
+            startNewCity(0);
+            toolbar.setActiveTool(TOOL_NONE);
+        }
+    } else if (budgetOpen && handleBudgetPointer(mousePixelF, isLeftPressed, justPressed)) {
+        // budget panel used the click / drag
+    } else if (isLeftPressed && !wasLeftPressed && mouseOverUI) {
         if (overViewPanel) {
             handleViewPanelClick(mousePixelF);
         } else if (mousePixelF.y <= 50.f) {
-            handleSpeedClick(mousePixelF);
+            if (moneyChipBounds().contains(mousePixelF)) setBudgetOpen(!budgetOpen);
+            else handleSpeedClick(mousePixelF);
         } else {
             toolbar.handleClick(mousePixelF);
         }
     }
 
     bool isHoveringTile = handleTileHover(mousePixel, mouseOverUI);
-    if (focused) {
+    if (focused && !economy.bankrupt) {
         handleGestures(isHoveringTile, mouseOverUI);
+    } else {
+        wasLeftPressed = isLeftPressed;
     }
 
     // 2. Render Passes
@@ -266,6 +376,7 @@ void Play_Scene::update(float deltaTime) {
 }
 
 void Play_Scene::advanceTime(float realSeconds) {
+    if (economy.bankrupt) { refreshUI(); return; } // the city is frozen on the game-over screen
     int newDays = gameClock.advance(realSeconds);
     for (int d = 0; d < newDays; d++) {
         runNewDay();
@@ -287,31 +398,26 @@ void Play_Scene::advanceTime(float realSeconds) {
 }
 
 void Play_Scene::runNewDay() {
-    collectDailyTaxes();
-    populateCity();
-}
+    DayReport rep = economy.runDay(happinessSystem);
+    lastDailyIncome = rep.net;
 
-// Sums every building's daily tax and credits whole dollars, carrying the
-// fraction forward so small per-building amounts are never lost.
-int Play_Scene::collectDailyTaxes() {
-    float total = taxCarry;
-    for (int i = 0; i < tileMapW; i++) {
-        for (int j = 0; j < tileMapH; j++) {
-            if (entities[i][j] == NULL) continue;
-            Zone* z = dynamic_cast<Zone*>(entities[i][j]);
-            if (z != NULL && !z->isSubTile) total += z->dailyTax();
-        }
+    // Debt warnings: the city may stay below $0 for at most 180 days
+    int d = economy.daysInDebt;
+    if (d == 1) showToast("Treasury in debt - bankrupt after 6 months in the red", true);
+    else if (d == 90) showToast("3 months of debt left - raise taxes or take a loan", true);
+    else if (d == 150) showToast("1 month left before bankruptcy!", true);
+
+    if (economy.bankrupt) {
+        gameClock.setSpeedIndex(0);
+        setBudgetOpen(false);
+        placementErrorTimer = 0.f; // the game-over screen replaces any warning
+        toolbar.setActiveTool(TOOL_NONE);
     }
-    int whole = static_cast<int>(std::floor(total));
-    taxCarry = total - static_cast<float>(whole);
-    money += whole;
-    lastDailyIncome = whole;
-    return whole;
 }
 
 // Pause / 1x / 2x / 4x buttons, right side of the top bar
 sf::FloatRect Play_Scene::speedButtonBounds(int speedIndex) const {
-    return sf::FloatRect(946.f + static_cast<float>(speedIndex) * 38.f, 10.f, 34.f, 28.f);
+    return sf::FloatRect(966.f + uikit::topBarShift() + static_cast<float>(speedIndex) * 38.f, 10.f, 34.f, 28.f);
 }
 
 bool Play_Scene::handleSpeedClick(const sf::Vector2f& point) {
@@ -360,13 +466,14 @@ void Play_Scene::handleCameraMovement(float deltaTime) {
     }
 
     if (zoomChanged) {
-        view.setSize(static_cast<float>(WINDOW_W) * currentZoom, static_cast<float>(WINDOW_H) * currentZoom);
+        view.setSize(uikit::SW() * currentZoom, uikit::SH() * currentZoom);
     }
 }
 
 void Play_Scene::handleToolHotkeys() {
     if (sf::Keyboard::isKeyPressed(sf::Keyboard::Escape)) {
         toolbar.setActiveTool(TOOL_NONE);
+        setBudgetOpen(false);
     }
     if (sf::Keyboard::isKeyPressed(sf::Keyboard::R)) {
         toolbar.setActiveTool(TOOL_RESIDENTIAL);
@@ -604,7 +711,7 @@ std::string Play_Scene::getOverlayName() const {
 
 // Map View panel: fixed screen-space buttons under the top bar (left side)
 sf::FloatRect Play_Scene::viewPanelBounds() const {
-    return sf::FloatRect(static_cast<float>(WINDOW_W) - 212.f, 58.f, 200.f, 84.f);
+    return sf::FloatRect(uikit::SW() - 212.f, 58.f, 200.f, 84.f);
 }
 
 sf::FloatRect Play_Scene::viewButtonBounds(int mode) const {
@@ -624,6 +731,10 @@ bool Play_Scene::handleViewPanelClick(const sf::Vector2f& point) {
 
 bool Play_Scene::canPlaceTile(int x, int y, BuildTool tool, std::string* outReason) const {
     if (tool == TOOL_NONE) return false;
+    if (economy.bankrupt) {
+        if (outReason) *outReason = "City is bankrupt";
+        return false;
+    }
 
     int cost = (tool == TOOL_BULLDOZE) ? getBulldozeCost(x, y) : getToolCost(tool);
     if (money < cost) {
@@ -754,8 +865,7 @@ void Play_Scene::placeTile(int x, int y, BuildTool tool) {
 
     std::string reason = "";
     if (!canPlaceTile(x, y, tool, &reason)) {
-        lastPlacementError = reason;
-        placementErrorTimer = 2.5f;
+        showToast("Can't build here: " + reason, true);
         return;
     }
 
@@ -983,6 +1093,39 @@ int Play_Scene::buildBenchCity() {
         }
     }
 
+    money = savedMoney;
+    return built;
+}
+
+// A small starter town around the spawn (--bench-town): 2 road rows of
+// ~19 tiles with ~16 buildings (mostly homes, a few shops / workshops, a
+// farm, a school and a park). Used to check early-game economy balance.
+int Play_Scene::buildBenchTown() {
+    const int savedMoney = money;
+    money = 100000000;
+    int x0 = std::max(2, worldSpawnX - 9), x1 = std::min(tileMapW - 3, worldSpawnX + 9);
+    int y0 = std::max(1, worldSpawnY - 4);
+    for (int i = x0 - 2; i <= x1 + 2; i++)
+        for (int j = y0; j <= y0 + 6; j++)
+            if (inWorldBounds(i, j) && isNaturalObstacleName(tileKind(i, j))) world[i][j].terrain = Terrain::Grass;
+    ground.markDirty();
+
+    for (int y = y0; y <= y0 + 3; y += 3)
+        for (int x = x0; x <= x1; x++) placeTile(x, y, TOOL_ROAD);
+
+    const BuildTool plan[] = {
+        TOOL_RES_COTTAGES, TOOL_RES_COTTAGES, TOOL_COM_GROCERY, TOOL_RES_COTTAGES, TOOL_IND_WORKSHOP,
+        TOOL_RES_COTTAGES, TOOL_RES_COTTAGES, TOOL_SCHOOL, TOOL_RES_COTTAGES, TOOL_COM_GROCERY,
+        TOOL_RES_COTTAGES, TOOL_IND_WORKSHOP, TOOL_RES_COTTAGES, TOOL_FARM_BARN, TOOL_RES_COTTAGES,
+        TOOL_PARK, TOOL_RES_COTTAGES, TOOL_COM_GROCERY, TOOL_RES_COTTAGES, TOOL_IND_WORKSHOP};
+    const int planSize = static_cast<int>(sizeof(plan) / sizeof(plan[0]));
+    int built = 0, k = 0;
+    for (int y = y0; y <= y0 + 3 && k < planSize; y += 3) {
+        for (int x = x0 + 1; x + 1 <= x1 && k < planSize; x += 2) {
+            if (canPlaceTile(x, y + 1, plan[k])) { placeTile(x, y + 1, plan[k]); built++; }
+            k++;
+        }
+    }
     money = savedMoney;
     return built;
 }
@@ -1353,22 +1496,24 @@ static std::string dailyTaxText(const Zone* z) {
 
 void Play_Scene::renderHUD(float deltaTime) {
     (void)deltaTime;
-    _window.setView(_window.getDefaultView());
+    // HUD view matches the window 1:1, so nothing is stretched
+    _window.setView(sf::View(sf::FloatRect(0.f, 0.f, uikit::SW(), uikit::SH())));
     const sf::Font& font = m_fonts["../assets/Hack.ttf"];
 
-    sf::Vector2i mousePixel = sf::Mouse::getPosition(_window);
-    sf::Vector2f mouse(static_cast<float>(mousePixel.x), static_cast<float>(mousePixel.y));
+    sf::Vector2f mouse = uikit::hudFromPixel(sf::Mouse::getPosition(_window), _window.getSize());
 
     renderTopBar(mouse);
     renderViewPanel(font, mouse);
     renderInspectCard();
     toolbar.draw(_window, font, mouse);
+    if (budgetOpen) renderBudget(mouse);
     renderToast();
+    if (economy.bankrupt) renderGameOver(mouse);
 
     // Small diagnostics, bottom-right
     std::string diag = std::to_string(calculatedFPS) + " FPS  |  Seed " + std::to_string(worldSeed);
     float dw = uikit::textWidth(diag, 10) + 18.f;
-    sf::FloatRect dr(static_cast<float>(WINDOW_W) - dw - 10.f, static_cast<float>(WINDOW_H) - 30.f, dw, 20.f);
+    sf::FloatRect dr(uikit::SW() - dw - 10.f, uikit::SH() - 30.f, dw, 20.f);
     uikit::roundedRect(_window, dr, 8.f, uikit::PANEL, uikit::BORDER, 1.f);
     uikit::textMid(_window, diag, dr.left + 9.f, dr.top, dr.height, 10, uikit::TEXT_DIM);
 }
@@ -1376,7 +1521,8 @@ void Play_Scene::renderHUD(float deltaTime) {
 // Top status bar: city, money, population + demand, happiness, date/season + speed
 void Play_Scene::renderTopBar(const sf::Vector2f& mouse) {
     using namespace uikit;
-    const float W = static_cast<float>(WINDOW_W);
+    const float W = SW();
+    const float sh = topBarShift();
 
     sf::RectangleShape bar(sf::Vector2f(W, 48.f));
     bar.setFillColor(sf::Color(12, 16, 23, 240));
@@ -1392,36 +1538,58 @@ void Play_Scene::renderTopBar(const sf::Vector2f& mouse) {
         return r;
     };
 
-    // City name
-    text(_window, "Chime City", 16.f, 9.f, 15, ACCENT, true);
-    text(_window, "Year " + std::to_string(gameClock.getYear()), 16.f, 29.f, 10, TEXT_DIM);
+    // City name (hidden on narrow windows)
+    if (sh == 0.f) {
+        text(_window, "Chime City", 16.f, 9.f, 15, ACCENT, true);
+        text(_window, "Year " + std::to_string(gameClock.getYear()), 16.f, 29.f, 10, TEXT_DIM);
+    }
 
-    // Treasury
-    sf::FloatRect m = chip(150.f, 200.f);
+    // Treasury (click for the budget)
+    sf::FloatRect m = moneyChipBounds();
+    bool moneyHover = m.contains(mouse);
+    roundedRect(_window, m, 10.f, moneyHover || budgetOpen ? PANEL_HOVER : PANEL_RAISED,
+                budgetOpen ? ACCENT : BORDER, budgetOpen ? 2.f : 1.f);
     icon(_window, "coin", m.left + 8.f, m.top + 6.f, 24.f);
-    text(_window, formatMoney(money), m.left + 40.f, m.top + 4.f, 15, TEXT, true);
-    sf::Color flow = lastDailyIncome > 0 ? GOOD : TEXT_DIM;
-    text(_window, "+" + formatMoney(lastDailyIncome) + " / day", m.left + 40.f, m.top + 22.f, 10, flow);
+    text(_window, formatMoney(money), m.left + 40.f, m.top + 4.f, 15, money < 0 ? BAD : TEXT, true);
+    if (economy.daysInDebt > 0) {
+        text(_window, "Debt! " + std::to_string(economy.daysUntilBankrupt()) + " days left", m.left + 40.f, m.top + 22.f, 10, BAD, true);
+    } else {
+        sf::Color flow = lastDailyIncome > 0 ? GOOD : (lastDailyIncome < 0 ? BAD : TEXT_DIM);
+        std::string sign = lastDailyIncome < 0 ? "-" : "+";
+        text(_window, sign + formatMoney(std::abs(lastDailyIncome)) + " / day   [B]", m.left + 40.f, m.top + 22.f, 10, flow);
+    }
 
-    // Population + R/C/I demand
-    sf::FloatRect p = chip(360.f, 170.f);
+    // Population + demand by income level
+    sf::FloatRect p = chip(360.f + sh, 190.f);
     icon(_window, "people", p.left + 8.f, p.top + 6.f, 24.f);
     int pop = townPopulation[0] + townPopulation[1] + townPopulation[2];
     text(_window, withCommas(pop), p.left + 40.f, p.top + 4.f, 15, TEXT, true);
     text(_window, "citizens", p.left + 40.f, p.top + 22.f, 10, TEXT_DIM);
+    // Demand: R C I groups, each $ $$ $$$ (up = wanted, down red = surplus)
     const sf::Color rci[3] = {GOOD, ACCENT, sf::Color(235, 140, 50)};
-    for (int i = 0; i < 3; i++) {
-        float frac = std::max(0.08f, std::min(1.f, static_cast<float>(townDemand[i]) / 1000.f));
-        float h = 24.f * frac;
-        float x = p.left + p.width - 40.f + static_cast<float>(i) * 10.f;
-        roundedRect(_window, sf::FloatRect(x, p.top + 6.f, 7.f, 24.f), 2.f, sf::Color(10, 13, 19, 220));
-        roundedRect(_window, sf::FloatRect(x, p.top + 30.f - h, 7.f, h), 2.f, rci[i]);
+    float bx = p.left + 98.f;
+    float mid = p.top + 18.f;
+    for (int sct = 0; sct < 3; sct++) {
+        for (int w = 0; w < 3; w++) {
+            float d = economy.demand[sct][w] / 100.f;
+            float x = bx + static_cast<float>(sct) * 30.f + static_cast<float>(w) * 8.f;
+            sf::RectangleShape track(sf::Vector2f(6.f, 26.f));
+            track.setPosition(x, mid - 13.f);
+            track.setFillColor(sf::Color(10, 13, 19, 220));
+            _window.draw(track);
+            float h = std::max(1.f, 13.f * std::fabs(d));
+            sf::RectangleShape barShape(sf::Vector2f(6.f, h));
+            barShape.setPosition(x, d >= 0.f ? mid - h : mid);
+            barShape.setFillColor(d >= 0.f ? rci[sct] : BAD);
+            _window.draw(barShape);
+        }
+        text(_window, sectorLetter(sct), bx + static_cast<float>(sct) * 30.f + 7.f, p.top + 30.f, 8, TEXT_DIM, true);
     }
 
     // Happiness
     int happy = happinessSystem.cityHappiness;
     sf::Color hc = happy >= 75 ? GOOD : (happy >= 50 ? WARN : BAD);
-    sf::FloatRect h = chip(540.f, 130.f);
+    sf::FloatRect h = chip(560.f + sh, 130.f);
     icon(_window, "smile", h.left + 8.f, h.top + 6.f, 24.f, hc);
     text(_window, std::to_string(happy) + "%", h.left + 40.f, h.top + 4.f, 15, hc, true);
     text(_window, "happiness", h.left + 40.f, h.top + 22.f, 10, TEXT_DIM);
@@ -1431,7 +1599,7 @@ void Play_Scene::renderTopBar(const sf::Vector2f& mouse) {
     const char* seasonIcons[4] = {"season_spring", "season_summer", "season_autumn", "season_winter"};
     const sf::Color seasonColors[4] = {sf::Color(120, 220, 110), sf::Color(250, 205, 70),
                                        sf::Color(235, 140, 60), sf::Color(170, 205, 245)};
-    sf::FloatRect d = chip(680.f, 420.f);
+    sf::FloatRect d = chip(700.f + sh, 420.f);
     icon(_window, seasonIcons[static_cast<int>(season)], d.left + 8.f, d.top + 6.f, 24.f);
     text(_window, gameClock.dateString(), d.left + 40.f, d.top + 4.f, 14, TEXT, true);
     std::string sub = GameClock::seasonName(season);
@@ -1454,12 +1622,13 @@ void Play_Scene::renderToast() {
     using namespace uikit;
     if (placementErrorTimer <= 0.f || lastPlacementError.empty()) return;
     float alpha = std::min(1.f, placementErrorTimer / 0.5f); // fade over the last half second
-    std::string msg = "Can't build here: " + lastPlacementError;
+    const std::string& msg = lastPlacementError;
     float w = textWidth(msg, 13, true) + 64.f;
-    sf::FloatRect r((static_cast<float>(WINDOW_W) - w) / 2.f, static_cast<float>(WINDOW_H) - 84.f, w, 40.f);
+    sf::FloatRect r((SW() - w) / 2.f, SH() - 84.f, w, 40.f);
     sf::Uint8 a = static_cast<sf::Uint8>(235.f * alpha);
     roundedRect(_window, sf::FloatRect(r.left + 2.f, r.top + 3.f, r.width, r.height), 12.f, withAlpha(SHADOW, static_cast<sf::Uint8>(90.f * alpha)));
-    roundedRect(_window, r, 12.f, sf::Color(48, 20, 22, a), withAlpha(BAD, a), 1.5f);
+    sf::Color edge = toastIsError ? BAD : ACCENT;
+    roundedRect(_window, r, 12.f, toastIsError ? sf::Color(48, 20, 22, a) : sf::Color(18, 34, 52, a), withAlpha(edge, a), 1.5f);
     icon(_window, "warning", r.left + 12.f, r.top + 8.f, 24.f, sf::Color(255, 255, 255, a));
     textMid(_window, msg, r.left + 44.f, r.top, r.height, 13, withAlpha(sf::Color(255, 215, 210), a), true);
 }
@@ -1492,13 +1661,13 @@ void Play_Scene::renderInspectCard() {
         subtitle = isClearGroundName(kind) ? "Open land - buildable" : "Bulldoze to clear";
         accent = sf::Color(120, 200, 110);
     } else if (isRoad) {
-        title = "Dirt Road"; subtitle = "Connects buildings on its edges"; accent = sf::Color(190, 196, 204);
+        title = "Dirt Road"; subtitle = "Upkeep $1 / day"; accent = sf::Color(190, 196, 204);
     } else if (kind == "ResidentalZone") {
-        title = "Residential"; subtitle = dynamic_cast<ResidentalZone*>(mz)->getVariantName(); accent = GOOD;
+        title = "Residential " + wealthSigns(mz->wealth()); subtitle = dynamic_cast<ResidentalZone*>(mz)->getVariantName(); accent = GOOD;
     } else if (kind == "CommericalZone") {
-        title = "Commercial"; subtitle = dynamic_cast<CommericalZone*>(mz)->getVariantName(); accent = ACCENT;
+        title = "Commercial " + wealthSigns(mz->wealth()); subtitle = dynamic_cast<CommericalZone*>(mz)->getVariantName(); accent = ACCENT;
     } else if (kind == "IndustrialZone") {
-        title = "Industrial"; subtitle = dynamic_cast<IndustrialZone*>(mz)->getVariantName(); accent = sf::Color(235, 140, 50);
+        title = "Industrial " + wealthSigns(mz->wealth()); subtitle = dynamic_cast<IndustrialZone*>(mz)->getVariantName(); accent = sf::Color(235, 140, 50);
     } else if (kind == "FarmZone") {
         title = "Farm"; subtitle = dynamic_cast<FarmZone*>(mz)->getVariantName(); accent = sf::Color(150, 205, 90);
     } else if (kind == "SchoolZone") {
@@ -1520,7 +1689,7 @@ void Play_Scene::renderInspectCard() {
     if (isZone) hgt += 2 * 30.f;            // occupancy + happiness bars
     if (kind == "FarmZone") hgt += 22.f;    // soil / season line
     hgt += 112.f;                           // land section
-    sf::FloatRect card(static_cast<float>(WINDOW_W) - W - 12.f, 152.f, W, hgt);
+    sf::FloatRect card(SW() - W - 12.f, 152.f, W, hgt);
     inspectCardRect = card;
     panel(_window, card, 12.f);
     roundedRect(_window, sf::FloatRect(card.left, card.top, card.width, 4.f), 2.f, accent);
@@ -1571,8 +1740,13 @@ void Play_Scene::renderInspectCard() {
         float sw = textWidth(status, 11, true) + 20.f;
         roundedRect(_window, sf::FloatRect(lx, y, sw, 22.f), 11.f, withAlpha(sc, 45), sc, 1.f);
         textMid(_window, status, lx + 10.f, y, 22.f, 11, sc, true);
-        std::string tax = "$" + dailyTaxText(mz) + " / day";
-        textMid(_window, tax, lx + rw - textWidth(tax, 12, true), y, 22.f, 12, mz->dailyTax() > 0.f ? GOOD : TEXT_DIM, true);
+        if (mz->dailyUpkeep() > 0) {
+            std::string cost = "-$" + std::to_string(mz->dailyUpkeep()) + " / day";
+            textMid(_window, cost, lx + rw - textWidth(cost, 12, true), y, 22.f, 12, BAD, true);
+        } else {
+            std::string tax = "$" + dailyTaxText(mz) + " / day";
+            textMid(_window, tax, lx + rw - textWidth(tax, 12, true), y, 22.f, 12, mz->dailyTax() > 0.f ? GOOD : TEXT_DIM, true);
+        }
         y += 34.f;
     }
     if (isZone) {
@@ -1616,21 +1790,259 @@ void Play_Scene::renderInspectCard() {
     }
 }
 
+// -------------------------------------------------------------
+// Budget panel: tax sliders + demand per income level, expenses, loans
+// -------------------------------------------------------------
+sf::FloatRect Play_Scene::budgetBounds() const {
+    // Centred; never under the top bar
+    return sf::FloatRect((uikit::SW() - 780.f) / 2.f, std::max(56.f, (uikit::SH() - 600.f) / 2.f), 780.f, 600.f);
+}
+
+sf::FloatRect Play_Scene::budgetCloseBounds() const {
+    sf::FloatRect b = budgetBounds();
+    return sf::FloatRect(b.left + b.width - 44.f, b.top + 12.f, 30.f, 30.f);
+}
+
+// Row layout: 3 sector groups (header 24 px) of 3 income rows (34 px)
+static float budgetRowTop(const sf::FloatRect& b, int sector, int wealth) {
+    return b.top + 92.f + static_cast<float>(sector) * (24.f + 3.f * 34.f) + 24.f + static_cast<float>(wealth) * 34.f;
+}
+
+sf::FloatRect Play_Scene::taxSliderBounds(int sector, int wealth) const {
+    sf::FloatRect b = budgetBounds();
+    return sf::FloatRect(b.left + 150.f, budgetRowTop(b, sector, wealth) + 13.f, 170.f, 8.f);
+}
+
+sf::FloatRect Play_Scene::loanButtonBounds() const {
+    sf::FloatRect b = budgetBounds();
+    return sf::FloatRect(b.left + 510.f, b.top + 470.f, 250.f, 34.f);
+}
+
+sf::FloatRect Play_Scene::newCityButtonBounds() const {
+    return sf::FloatRect(uikit::SW() / 2.f - 110.f, uikit::SH() / 2.f + 60.f, 220.f, 40.f);
+}
+
+int Play_Scene::taxFromSliderX(int sector, int wealth, float x) const {
+    sf::FloatRect t = taxSliderBounds(sector, wealth);
+    float f = std::max(0.f, std::min(1.f, (x - t.left) / t.width));
+    return TAX_MIN + static_cast<int>(std::round(f * static_cast<float>(TAX_MAX - TAX_MIN)));
+}
+
+bool Play_Scene::handleBudgetPointer(const sf::Vector2f& p, bool down, bool justPressed) {
+    if (!budgetOpen) return false;
+    sf::FloatRect b = budgetBounds();
+
+    // Which row is hovered (for the demand hint)
+    hoveredBucket = -1;
+    for (int sct = 0; sct < SECTOR_COUNT; sct++)
+        for (int w = 0; w < WEALTH_COUNT; w++) {
+            float top = budgetRowTop(b, sct, w);
+            if (p.x >= b.left + 16.f && p.x <= b.left + 490.f && p.y >= top && p.y < top + 34.f) hoveredBucket = sct * 3 + w;
+        }
+
+    if (justPressed) {
+        if (budgetCloseBounds().contains(p)) { setBudgetOpen(false); return true; }
+        if (loanButtonBounds().contains(p)) {
+            if (economy.takeLoan()) showToast("Loan received: +$10,000 (repaid daily over a year)", false);
+            else showToast("Loan limit reached (" + std::to_string(LOAN_MAX_ACTIVE) + " active loans)", true);
+            return true;
+        }
+        for (int sct = 0; sct < SECTOR_COUNT; sct++) {
+            for (int w = 0; w < WEALTH_COUNT; w++) {
+                sf::FloatRect t = taxSliderBounds(sct, w);
+                sf::FloatRect hit(t.left - 8.f, t.top - 10.f, t.width + 16.f, t.height + 20.f);
+                if (hit.contains(p)) {
+                    activeSlider = sct * 3 + w;
+                    taxRates[sct][w] = taxFromSliderX(sct, w, p.x);
+                    return true;
+                }
+            }
+        }
+        return b.contains(p); // clicks on the panel never reach the map
+    }
+    if (down && activeSlider >= 0) {
+        int sct = activeSlider / 3, w = activeSlider % 3;
+        taxRates[sct][w] = taxFromSliderX(sct, w, p.x);
+        return true;
+    }
+    if (!down) activeSlider = -1;
+    return false;
+}
+
+void Play_Scene::renderBudget(const sf::Vector2f& mouse) {
+    using namespace uikit;
+    // keep the hover hint current even without clicks
+    handleBudgetPointer(mouse, activeSlider >= 0, false);
+
+    sf::FloatRect b = budgetBounds();
+    panel(_window, b, 14.f);
+    text(_window, "City Budget", b.left + 20.f, b.top + 16.f, 18, TEXT, true);
+    text(_window, "Daily figures  -  drag a slider to change that tax rate", b.left + 20.f, b.top + 42.f, 11, TEXT_DIM);
+
+    sf::FloatRect xb = budgetCloseBounds();
+    bool xHover = xb.contains(mouse);
+    roundedRect(_window, xb, 8.f, xHover ? sf::Color(120, 40, 36) : PANEL_RAISED, BORDER, 1.f);
+    textMid(_window, "x", xb.left + 10.f, xb.top - 1.f, xb.height, 15, xHover ? sf::Color::White : TEXT_DIM, true);
+
+    // ---- left: taxes and demand ----
+    const sf::Color rci[3] = {GOOD, ACCENT, sf::Color(235, 140, 50)};
+    float lx = b.left + 20.f;
+    text(_window, "TAX & DEMAND", lx, b.top + 72.f, 11, TEXT_DIM, true);
+    text(_window, "rate", lx + 336.f, b.top + 72.f, 9, TEXT_DIM);
+    text(_window, "income", lx + 402.f, b.top + 72.f, 9, TEXT_DIM);
+    for (int sct = 0; sct < SECTOR_COUNT; sct++) {
+        float gy = budgetRowTop(b, sct, 0) - 24.f;
+        roundedRect(_window, sf::FloatRect(lx, gy + 6.f, 4.f, 14.f), 2.f, rci[sct]);
+        text(_window, sectorName(sct), lx + 10.f, gy + 6.f, 12, TEXT, true);
+
+        for (int w = 0; w < WEALTH_COUNT; w++) {
+            float ry = budgetRowTop(b, sct, w);
+            if (hoveredBucket == sct * 3 + w) {
+                roundedRect(_window, sf::FloatRect(lx - 6.f, ry, 478.f, 32.f), 8.f, sf::Color(255, 255, 255, 12));
+            }
+            text(_window, wealthSigns(w), lx + 10.f, ry + 10.f, 12, rci[sct], true);
+
+            // Demand bar centred on zero
+            float d = economy.demand[sct][w] / 100.f;
+            sf::FloatRect db(lx + 36.f, ry + 12.f, 44.f, 10.f);
+            roundedRect(_window, db, 3.f, sf::Color(10, 13, 19, 220));
+            float half = db.width / 2.f;
+            float wbar = std::max(1.f, half * std::fabs(d));
+            sf::RectangleShape fill(sf::Vector2f(wbar, db.height - 2.f));
+            fill.setPosition(d >= 0.f ? db.left + half : db.left + half - wbar, db.top + 1.f);
+            fill.setFillColor(d >= 0.f ? rci[sct] : BAD);
+            _window.draw(fill);
+            sf::RectangleShape zero(sf::Vector2f(1.f, db.height + 4.f));
+            zero.setPosition(db.left + half, db.top - 2.f);
+            zero.setFillColor(TEXT_DIM);
+            _window.draw(zero);
+            char dbuf[8];
+            int dval = static_cast<int>(std::lround(economy.demand[sct][w]));
+            if (dval == 0) std::snprintf(dbuf, sizeof(dbuf), "0");
+            else std::snprintf(dbuf, sizeof(dbuf), "%+d", dval);
+            textRight(_window, dbuf, lx + 120.f, ry + 10.f, 10, d >= 0.f ? rci[sct] : BAD, true);
+
+            // Tax slider
+            sf::FloatRect t = taxSliderBounds(sct, w);
+            int rate = taxRates[sct][w];
+            float f = static_cast<float>(rate - TAX_MIN) / static_cast<float>(TAX_MAX - TAX_MIN);
+            sf::Color rateCol = rate >= 13 ? BAD : (rate <= 5 ? GOOD : TEXT);
+            bar(_window, t, f, withAlpha(rci[sct], 170));
+            float kx = t.left + t.width * f;
+            bool active = activeSlider == sct * 3 + w;
+            sf::CircleShape knob(active ? 9.f : 7.f);
+            knob.setOrigin(knob.getRadius(), knob.getRadius());
+            knob.setPosition(kx, t.top + t.height / 2.f);
+            knob.setFillColor(active ? sf::Color::White : sf::Color(220, 228, 238));
+            knob.setOutlineColor(rci[sct]);
+            knob.setOutlineThickness(2.f);
+            _window.draw(knob);
+            text(_window, std::to_string(rate) + "%", lx + 336.f, ry + 9.f, 12, rateCol, true);
+
+            float inc = economy.lastDay.tax[sct][w];
+            char buf[24];
+            std::snprintf(buf, sizeof(buf), "$%.0f", inc);
+            textRight(_window, buf, lx + 470.f, ry + 9.f, 12, inc > 0.5f ? GOOD : TEXT_DIM, true);
+        }
+    }
+
+    // Demand hint for the hovered row
+    std::string hint = "Hover a row to see what limits its demand";
+    if (hoveredBucket >= 0) {
+        int sct = hoveredBucket / 3, w = hoveredBucket % 3;
+        char buf[96];
+        std::snprintf(buf, sizeof(buf), "%s %s: demand %+.0f  -  %s", sectorLetter(sct).c_str(), wealthSigns(w).c_str(),
+                      economy.demand[sct][w], economy.limitingFactor(sct, w).c_str());
+        hint = buf;
+    }
+    text(_window, hint, lx, b.top + b.height - 30.f, 11, hoveredBucket >= 0 ? WARN : TEXT_DIM, hoveredBucket >= 0);
+
+    // ---- right: expenses, summary, loans ----
+    float rx = b.left + 510.f, rw = 250.f;
+    sf::RectangleShape divider(sf::Vector2f(1.f, b.height - 110.f));
+    divider.setPosition(rx - 16.f, b.top + 72.f);
+    divider.setFillColor(BORDER);
+    _window.draw(divider);
+
+    const DayReport& rep = economy.lastDay;
+    float y = b.top + 72.f;
+    text(_window, "DAILY EXPENSES", rx, y, 11, TEXT_DIM, true);
+    y += 22.f;
+    auto row = [&](const std::string& label, const std::string& value, const sf::Color& c) {
+        text(_window, label, rx, y, 12, TEXT_DIM);
+        textRight(_window, value, rx + rw, y, 12, c, true);
+        y += 22.f;
+    };
+    auto dollars = [](float v) { return "$" + withCommas(static_cast<long long>(std::round(v))); };
+    row("Roads (" + std::to_string(rep.roadTiles) + " tiles)", dollars(static_cast<float>(rep.upkeepRoads)), TEXT);
+    row("Schools", dollars(static_cast<float>(rep.upkeepSchools)), TEXT);
+    row("Churches", dollars(static_cast<float>(rep.upkeepChurches)), TEXT);
+    row("Parks", dollars(static_cast<float>(rep.upkeepParks)), TEXT);
+    row("Harbours", dollars(static_cast<float>(rep.upkeepHarbours)), TEXT);
+    row("Loan repayments", dollars(rep.loanPayments), TEXT);
+
+    y += 8.f;
+    text(_window, "SUMMARY", rx, y, 11, TEXT_DIM, true);
+    y += 22.f;
+    row("Tax income", "+" + dollars(rep.taxTotal), GOOD);
+    row("Expenses", "-" + dollars(rep.expenseTotal), BAD);
+    float net = rep.taxTotal - rep.expenseTotal;
+    text(_window, "Net per day", rx, y, 13, TEXT, true);
+    textRight(_window, (net >= 0.f ? "+" : "-") + dollars(std::fabs(net)), rx + rw, y, 13, net >= 0.f ? GOOD : BAD, true);
+    y += 30.f;
+
+    text(_window, "LOANS", rx, y, 11, TEXT_DIM, true);
+    y += 22.f;
+    row("Active", std::to_string(economy.loans.size()) + " / " + std::to_string(LOAN_MAX_ACTIVE), TEXT);
+    row("Still owed", dollars(economy.loanBalance()), economy.loans.empty() ? TEXT_DIM : WARN);
+
+    sf::FloatRect lb = loanButtonBounds();
+    bool canLoan = economy.canTakeLoan();
+    bool lHover = lb.contains(mouse) && canLoan;
+    roundedRect(_window, lb, 10.f, canLoan ? (lHover ? sf::Color(40, 90, 130) : sf::Color(28, 64, 96)) : PANEL_RAISED,
+                canLoan ? ACCENT : BORDER, 1.f);
+    std::string loanLabel = canLoan ? "Take $10,000 loan (10%)" : "Loan limit reached";
+    textMid(_window, loanLabel, lb.left + (lb.width - textWidth(loanLabel, 12, true)) / 2.f, lb.top, lb.height, 12,
+            canLoan ? TEXT : TEXT_DIM, true);
+    text(_window, "Repaid daily over 1 year", rx, lb.top + lb.height + 6.f, 10, TEXT_DIM);
+
+    // Debt warning strip
+    if (economy.daysInDebt > 0) {
+        sf::FloatRect w(b.left + 16.f, b.top + b.height - 70.f, b.width - 32.f, 30.f);
+        roundedRect(_window, w, 8.f, sf::Color(70, 22, 24, 235), BAD, 1.f);
+        std::string msg = "In debt for " + std::to_string(economy.daysInDebt) + " days  -  bankrupt in " +
+                          std::to_string(economy.daysUntilBankrupt()) + " days unless the treasury recovers";
+        icon(_window, "warning", w.left + 8.f, w.top + 5.f, 20.f);
+        textMid(_window, msg, w.left + 36.f, w.top, w.height, 11, sf::Color(255, 210, 205), true);
+    }
+}
+
+void Play_Scene::renderGameOver(const sf::Vector2f& mouse) {
+    using namespace uikit;
+    sf::RectangleShape dim(sf::Vector2f(SW(), SH()));
+    dim.setFillColor(sf::Color(5, 7, 10, 190));
+    _window.draw(dim);
+
+    sf::FloatRect b(SW() / 2.f - 260.f, SH() / 2.f - 140.f, 520.f, 270.f);
+    panel(_window, b, 16.f, PANEL, BAD);
+    icon(_window, "warning", b.left + b.width / 2.f - 24.f, b.top + 20.f, 48.f);
+    std::string title = "City Bankrupt";
+    text(_window, title, b.left + (b.width - textWidth(title, 22, true)) / 2.f, b.top + 80.f, 22, BAD, true);
+    std::string l1 = "The treasury stayed in debt for 6 months.";
+    std::string l2 = "Reached " + gameClock.dateString() + " with " +
+                     withCommas(townPopulation[0] + townPopulation[1] + townPopulation[2]) + " citizens.";
+    text(_window, l1, b.left + (b.width - textWidth(l1, 12)) / 2.f, b.top + 118.f, 12, TEXT);
+    text(_window, l2, b.left + (b.width - textWidth(l2, 12)) / 2.f, b.top + 140.f, 12, TEXT_DIM);
+
+    sf::FloatRect nb = newCityButtonBounds();
+    bool hover = nb.contains(mouse);
+    roundedRect(_window, nb, 10.f, hover ? sf::Color(40, 90, 130) : sf::Color(28, 64, 96), ACCENT, 1.f);
+    std::string label = "Found a new city  [N]";
+    textMid(_window, label, nb.left + (nb.width - textWidth(label, 13, true)) / 2.f, nb.top, nb.height, 13, TEXT, true);
+}
+
 void Play_Scene::refreshUI() {
     yr = gameClock.getYear();
     mon = gameClock.getMonth();
     day = gameClock.getDay();
-}
-
-void Play_Scene::populateCity() {
-    for (int i = 0; i < 3; i++) {
-        int k = townCapacity[i] - townPopulation[i];
-        if (townDemand[i] <= 0 || k <= 0) {
-            continue;
-        }
-
-        int populationInc = (k > 10) ? (std::rand() % (k / 10) + 1) : (std::rand() % k + 1);
-        townPopulation[i] += populationInc;
-        townDemand[i] -= populationInc;
-    }
 }

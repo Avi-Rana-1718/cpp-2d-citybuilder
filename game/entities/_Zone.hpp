@@ -1,6 +1,7 @@
 #pragma once
 #include "../../src/Entity.hpp"
 #include "../ui/Window.hpp"
+#include "../simulation/EconomyData.hpp"
 
 class Zone : public Entity {
 public:
@@ -44,9 +45,24 @@ public:
     virtual void update(float deltaTime) override;
     virtual void drawGround(sf::RenderWindow& window);
     virtual void drawBuilding(sf::RenderWindow& window);
-    // Tax this building pays per game day (0 when inactive). Summed and
-    // credited once per day by Play_Scene::collectDailyTaxes().
-    virtual float dailyTax() const { return 0.f; }
+    // ---- Economy ----
+    // (sector, wealth) bucket for demand and taxes; sector -1 = not taxed
+    virtual int sector() const { return -1; }
+    virtual int wealth() const { return tier <= 1 ? WEALTH_LOW : (tier == 2 ? WEALTH_MID : WEALTH_HIGH); }
+    // Building-specific income factor (farms: soil x season)
+    virtual float incomeMultiplier() const { return 1.f; }
+    // Daily running cost (roads and public services)
+    virtual int dailyUpkeep() const { return 0; }
+
+    // Tax paid per game day: occupants x income per occupant x bucket tax rate
+    virtual float dailyTax() const {
+        if (!isActive || isSubTile || population <= 0) return 0.f;
+        int s = sector();
+        if (s < 0) return 0.f;
+        int w = wealth();
+        return static_cast<float>(population) * INCOME_PER_CAPITA[s][w] *
+               (static_cast<float>(taxRates[s][w]) / 100.f) * incomeMultiplier();
+    }
 
     // Recomputes isActive (road access). Called when the building is placed
     // and when a road or water tile on its border changes, not every frame.

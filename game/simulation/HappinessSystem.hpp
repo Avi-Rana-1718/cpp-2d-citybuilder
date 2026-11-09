@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cstring>
 #include "../../src/_global.hpp"
+#include "./EconomyData.hpp"
 
 #include "../entities/ResidentalZone.hpp"
 #include "../entities/CommericalZone.hpp"
@@ -78,7 +79,9 @@ public:
             jobRatioScore = std::min(100, (totalJobs * 100) / totalWorkers);
         }
 
-        int taxSatisfaction = std::max(0, 100 - (townTaxes[0] * 4));
+        // Residents judge the average of their three tax sliders (9% -> 76)
+        float avgResTax = (taxRates[SECTOR_R][0] + taxRates[SECTOR_R][1] + taxRates[SECTOR_R][2]) / 3.f;
+        int taxSatisfaction = std::max(0, std::min(100, static_cast<int>(100.f - (avgResTax - 5.f) * 6.f)));
 
         int eduCount = 0;
         int safetyCount = 0;
@@ -128,26 +131,7 @@ public:
                     healthCount += health;
                     recCount += recreation;
 
-                    // Autonomous Tier Upgrade Progression
-                    if (zoneHappy >= 60 && rz->tier == 1) {
-                        rz->upgradeTier(2);
-                    } else if (zoneHappy >= 80 && edu > 50 && parks > 50 && rz->tier == 2) {
-                        rz->upgradeTier(3);
-                    }
-                } else if (entities[x][y]->getName() == "CommericalZone") {
-                    CommericalZone* cz = dynamic_cast<CommericalZone*>(entities[x][y]);
-                    if (cz != NULL && cz->tier == 1 && townPopulation[0] > 50) {
-                        cz->upgradeTier(2);
-                    } else if (cz != NULL && cz->tier == 2 && townPopulation[0] > 120) {
-                        cz->upgradeTier(3);
-                    }
-                } else if (entities[x][y]->getName() == "IndustrialZone") {
-                    IndustrialZone* iz = dynamic_cast<IndustrialZone*>(entities[x][y]);
-                    if (iz != NULL && iz->tier == 1 && townDemand[2] > 200) {
-                        iz->upgradeTier(2);
-                    } else if (iz != NULL && iz->tier == 2 && townDemand[2] > 400) {
-                        iz->upgradeTier(3);
-                    }
+                    // Tier changes are decided by EconomySystem (they need demand too)
                 }
             }
         }

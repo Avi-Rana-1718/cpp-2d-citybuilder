@@ -31,6 +31,21 @@ const sf::Color SHADOW(0, 0, 0, 90);
 
 inline const sf::Font& font() { return m_fonts["../assets/Hack.ttf"]; }
 
+inline float SW() { return static_cast<float>(screenW); }
+inline float SH() { return static_cast<float>(screenH); }
+
+// Top bar: narrow windows drop the city-name block and slide the chips left
+inline float topBarShift() { return screenW >= 1180 ? 0.f : -140.f; }
+
+// The HUD is laid out for screenW x screenH, which follows the window on
+// every resize, so this is normally 1:1. It still scales correctly if a
+// frame is drawn before the resize event has been handled.
+inline sf::Vector2f hudFromPixel(const sf::Vector2i& pixel, const sf::Vector2u& windowSize) {
+    float sx = windowSize.x > 0 ? static_cast<float>(screenW) / static_cast<float>(windowSize.x) : 1.f;
+    float sy = windowSize.y > 0 ? static_cast<float>(screenH) / static_cast<float>(windowSize.y) : 1.f;
+    return sf::Vector2f(static_cast<float>(pixel.x) * sx, static_cast<float>(pixel.y) * sy);
+}
+
 // ---- shapes ----
 // HUD shapes and labels mostly repeat frame to frame, so their geometry is
 // cached and only colours/positions are updated (SFML rebuilds geometry on

@@ -77,6 +77,17 @@ def infrastructure():
     return img
 
 
+def road():
+    img, d = canvas()
+    d.polygon([(0, 11), (11, 0), (16, 0), (16, 5), (5, 16), (0, 16)], fill=(96, 102, 114, 255))   # asphalt band
+    d.line((0, 11, 11, 0), fill=(200, 205, 212, 255))                                           # kerbs
+    d.line((5, 16, 16, 5), fill=(200, 205, 212, 255))
+    for k in range(3):                                                                           # centre dashes
+        x = 2 + k * 5
+        d.line((x, 13 - k * 5, x + 2, 11 - k * 5), fill=(250, 210, 60, 255), width=1)
+    return img
+
+
 def bulldoze():
     img, d = canvas()
     d.rectangle((4, 5, 11, 10), fill=(245, 196, 40, 255), outline=INK)       # cab/body
@@ -220,7 +231,7 @@ def triangles(n):
 ICONS = {
     "inspect": inspect, "residential": residential, "commercial": commercial,
     "industrial": industrial, "civic": civic, "infrastructure": infrastructure,
-    "bulldoze": bulldoze, "coin": coin, "people": people, "smile": smile,
+    "bulldoze": bulldoze, "road": road, "coin": coin, "people": people, "smile": smile,
     "season_spring": season_spring, "season_summer": season_summer,
     "season_autumn": season_autumn, "season_winter": season_winter,
     "view_normal": view_normal, "view_fertility": view_fertility,

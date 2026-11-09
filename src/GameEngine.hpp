@@ -30,15 +30,23 @@ class GameEngine {
 };
 
 GameEngine::GameEngine() {
-    void* headlessHandle = headless ? createHeadlessWindowHandle(WINDOW_W, WINDOW_H) : nullptr;
+    void* headlessHandle = headless ? createHeadlessWindowHandle(preferredW, preferredH) : nullptr;
     if (headlessHandle != nullptr) {
         _window.create(static_cast<sf::WindowHandle>(headlessHandle));
     } else {
-        _window.create(sf::VideoMode(WINDOW_W, WINDOW_H), gameTitle);
+        // Preferred size, shrunk to fit the desktop (leave room for borders / taskbar)
+        sf::VideoMode desktop = sf::VideoMode::getDesktopMode();
+        unsigned w = std::min<unsigned>(preferredW, desktop.width > 80 ? desktop.width - 40 : desktop.width);
+        unsigned h = std::min<unsigned>(preferredH, desktop.height > 160 ? desktop.height - 120 : desktop.height);
+        w = std::max<unsigned>(w, MIN_WINDOW_W);
+        h = std::max<unsigned>(h, MIN_WINDOW_H);
+        _window.create(sf::VideoMode(w, h), gameTitle);
         if (headless) _window.setVisible(false); // non-Windows fallback
     }
-    view.setSize(sf::Vector2f(WINDOW_W, WINDOW_H));
-    view.setCenter(sf::Vector2f(WINDOW_W / 2.f, WINDOW_H / 2.f));
+    screenW = static_cast<int>(_window.getSize().x);
+    screenH = static_cast<int>(_window.getSize().y);
+    view.setSize(sf::Vector2f(static_cast<float>(screenW), static_cast<float>(screenH)));
+    view.setCenter(sf::Vector2f(screenW / 2.f, screenH / 2.f));
     _window.setView(view);
 
     assets.addFont("../assets/Hack.ttf");
@@ -64,7 +72,7 @@ GameEngine::GameEngine() {
 
     // HUD icons (tools/gen_ui_icons.py), registered as "ui_<name>"
     const char* uiIcons[] = {
-        "inspect", "residential", "commercial", "industrial", "civic", "infrastructure", "bulldoze",
+        "inspect", "residential", "commercial", "industrial", "civic", "infrastructure", "road", "bulldoze",
         "coin", "people", "smile", "season_spring", "season_summer", "season_autumn", "season_winter",
         "view_normal", "view_fertility", "view_water", "view_deposits", "warning", "star",
         "speed_pause", "speed_1", "speed_2", "speed_4"};
@@ -167,6 +175,15 @@ void GameEngine::run() {
             if(_events.type == sf::Event::Closed) {
                 isRunning = false;
                 _window.close();
+            } else if (_events.type == sf::Event::Resized) {
+                unsigned w = std::max<unsigned>(_events.size.width, MIN_WINDOW_W);
+                unsigned h = std::max<unsigned>(_events.size.height, MIN_WINDOW_H);
+                if (w != _events.size.width || h != _events.size.height) {
+                    _window.setSize(sf::Vector2u(w, h)); // clamp; SFML sends another Resized
+                }
+                screenW = static_cast<int>(w);
+                screenH = static_cast<int>(h);
+                currentScene->onResize(w, h);
             }
         }
 

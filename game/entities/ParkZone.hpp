@@ -10,6 +10,7 @@ public:
     ~ParkZone() = default;
 
     void update(float deltaTime) override;
+    int dailyUpkeep() const override { return UPKEEP_PARK; }
     void drawGround(sf::RenderWindow& window) override;
     void drawBuilding(sf::RenderWindow& window) override;
 };

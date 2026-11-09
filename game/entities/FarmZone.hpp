@@ -16,7 +16,9 @@ public:
     void drawBuilding(sf::RenderWindow& window) override;
 
     void checkValid() override;
-    float dailyTax() const override;
+    int sector() const override { return SECTOR_I; }
+    int wealth() const override { return WEALTH_LOW; }
+    float incomeMultiplier() const override { return fertilityMul * seasonalFarmMultiplier(gameClock.getSeason()); }
     void updateBuildingTexture();
     std::string getVariantName() const;
 };
@@ -116,12 +118,6 @@ inline void FarmZone::drawBuilding(sf::RenderWindow& window) {
 inline void FarmZone::checkValid() {
     // Active when a road shares an edge with the 2x2 footprint
     isActive = hasAdjacentRoad(posX, posY);
-}
-
-// Daily tax: income x sector tax rate x season (harvest peaks in autumn)
-inline float FarmZone::dailyTax() const {
-    if (!isActive) return 0.f;
-    return static_cast<float>(zoneIncome) * (static_cast<float>(townTaxes[2]) / 100.f) * seasonalFarmMultiplier(gameClock.getSeason());
 }
 
 inline FarmZone::~FarmZone() {

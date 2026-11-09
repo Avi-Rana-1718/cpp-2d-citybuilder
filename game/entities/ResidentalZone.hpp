@@ -10,12 +10,11 @@ public:
     ~ResidentalZone();
 
     void update(float deltaTime) override;
-    void simTick() override;
     void drawGround(sf::RenderWindow& window) override;
     void drawBuilding(sf::RenderWindow& window) override;
 
     void checkValid() override;
-    float dailyTax() const override;
+    int sector() const override { return SECTOR_R; }
     void upgradeTier(int newTier);
     void downgradeTier(int newTier);
     void updateBuildingTexture();
@@ -113,21 +112,6 @@ inline void ResidentalZone::update(float deltaTime) {
     setDeltaTime(deltaTime);
 }
 
-// Once per simulation tick: tier progression
-inline void ResidentalZone::simTick() {
-
-    // Occurance & tier progression based on happiness
-    if (isActive) {
-        if (overallHappiness >= 80 && tier < 3) {
-            upgradeTier(3);
-        } else if (overallHappiness >= 60 && tier == 1) {
-            upgradeTier(2);
-        } else if (overallHappiness < 45 && tier > 1) {
-            downgradeTier(tier - 1);
-        }
-    }
-}
-
 inline void ResidentalZone::drawGround(sf::RenderWindow& window) {
     if (sprite != NULL) {
         sprite->setPosition(position->x, position->y);
@@ -146,12 +130,6 @@ inline void ResidentalZone::drawBuilding(sf::RenderWindow& window) {
 inline void ResidentalZone::checkValid() {
     // Active when a road shares an edge with the 2x2 footprint
     isActive = hasAdjacentRoad(posX, posY);
-}
-
-// Daily tax: income x sector tax rate
-inline float ResidentalZone::dailyTax() const {
-    if (!isActive) return 0.f;
-    return static_cast<float>(zoneIncome) * (static_cast<float>(townTaxes[0]) / 100.f);
 }
 
 inline void ResidentalZone::upgradeTier(int newTier) {

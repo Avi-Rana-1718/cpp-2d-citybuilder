@@ -10,12 +10,11 @@ public:
     ~IndustrialZone();
 
     void update(float deltaTime) override;
-    void simTick() override;
     void drawGround(sf::RenderWindow& window) override;
     void drawBuilding(sf::RenderWindow& window) override;
 
     void checkValid() override;
-    float dailyTax() const override;
+    int sector() const override { return SECTOR_I; }
     void upgradeTier(int newTier);
     void downgradeTier(int newTier);
     void updateBuildingTexture();
@@ -115,20 +114,6 @@ inline void IndustrialZone::update(float deltaTime) {
     setDeltaTime(deltaTime);
 }
 
-// Once per simulation tick: tier progression
-inline void IndustrialZone::simTick() {
-
-    if (isActive) {
-        if (townDemand[2] > 350 && tier < 3) {
-            upgradeTier(3);
-        } else if (townDemand[2] > 180 && tier == 1) {
-            upgradeTier(2);
-        } else if (townDemand[2] < 80 && tier > 1) {
-            downgradeTier(tier - 1);
-        }
-    }
-}
-
 inline void IndustrialZone::drawGround(sf::RenderWindow& window) {
     if (sprite != NULL) {
         sprite->setPosition(position->x, position->y);
@@ -147,12 +132,6 @@ inline void IndustrialZone::drawBuilding(sf::RenderWindow& window) {
 inline void IndustrialZone::checkValid() {
     // Active when a road shares an edge with the 2x2 footprint
     isActive = hasAdjacentRoad(posX, posY);
-}
-
-// Daily tax: income x sector tax rate
-inline float IndustrialZone::dailyTax() const {
-    if (!isActive) return 0.f;
-    return static_cast<float>(zoneIncome) * (static_cast<float>(townTaxes[2]) / 100.f);
 }
 
 inline void IndustrialZone::upgradeTier(int newTier) {

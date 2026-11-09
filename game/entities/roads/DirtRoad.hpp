@@ -7,6 +7,7 @@ class DirtRoad : public Road {
 
     void update(float deltaTime);
     void check();
+    int dailyUpkeep() const override { return UPKEEP_ROAD; }
 };
 
 DirtRoad::DirtRoad(int posX, int posY) : Road(posX, posY) {

@@ -11,6 +11,7 @@ public:
     ~ChurchZone() = default;
 
     void update(float deltaTime) override;
+    int dailyUpkeep() const override { return UPKEEP_CHURCH; }
     void drawGround(sf::RenderWindow& window) override;
     void drawBuilding(sf::RenderWindow& window) override;
     void checkValid() override;

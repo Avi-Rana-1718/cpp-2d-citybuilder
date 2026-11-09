@@ -5,6 +5,7 @@
 #include <cmath>
 #include <algorithm>
 #include "./UiKit.hpp"
+#include "../simulation/EconomyData.hpp"
 
 enum BuildTool {
     TOOL_NONE,
@@ -182,7 +183,7 @@ public:
         addTab(ToolbarCategory::COMMERCIAL, "Commercial", "commercial", "C", sf::Color(70, 160, 235));
         addTab(ToolbarCategory::INDUSTRIAL, "Industry & Farms", "industrial", "I / F", sf::Color(235, 140, 50));
         addTab(ToolbarCategory::CIVICS, "Civic & Ports", "civic", "1 2 3 H", sf::Color(170, 120, 220));
-        addTab(ToolbarCategory::INFRASTRUCTURE, "Infrastructure", "infrastructure", "Space W X", sf::Color(160, 172, 186));
+        addTab(ToolbarCategory::INFRASTRUCTURE, "Roads & Utilities", "road", "Space W X", sf::Color(160, 172, 186));
 
         allTools.clear();
         auto add = [&](BuildTool t, const char* title, const char* sub, const char* key, sf::Color c, ToolbarCategory cat) {
@@ -203,12 +204,12 @@ public:
         add(TOOL_FARM, "FARMS", "Barn & silo - best on rich soil", "F", sf::Color(150, 205, 90), C::INDUSTRIAL);
         add(TOOL_FARM_WINDMILL, "WINDMILL FARM", "Windmill - best on rich soil", "", sf::Color(150, 205, 90), C::INDUSTRIAL);
 
-        add(TOOL_SCHOOL, "ELEMENTARY SCHOOL", "Education - radius 5", "1", sf::Color(235, 87, 72), C::CIVICS);
-        add(TOOL_CHURCH, "COMMUNITY CHURCH", "Faith - radius 4", "2", sf::Color(170, 120, 220), C::CIVICS);
-        add(TOOL_PARK, "NATURE PARK", "Health & fun - radius 4", "3", sf::Color(72, 200, 110), C::CIVICS);
-        add(TOOL_HARBOUR, "TRADE HARBOUR", "Port - needs shore + road", "H", sf::Color(64, 160, 230), C::CIVICS);
+        add(TOOL_SCHOOL, "ELEMENTARY SCHOOL", "Education r5 - $25/day", "1", sf::Color(235, 87, 72), C::CIVICS);
+        add(TOOL_CHURCH, "COMMUNITY CHURCH", "Faith r4 - $20/day", "2", sf::Color(170, 120, 220), C::CIVICS);
+        add(TOOL_PARK, "NATURE PARK", "Health r4 - $10/day", "3", sf::Color(72, 200, 110), C::CIVICS);
+        add(TOOL_HARBOUR, "TRADE HARBOUR", "Port jobs - $40/day", "H", sf::Color(64, 160, 230), C::CIVICS);
 
-        add(TOOL_ROAD, "DIRT ROAD", "1x1 - drag to draw", "Space", sf::Color(190, 196, 204), C::INFRASTRUCTURE);
+        add(TOOL_ROAD, "DIRT ROAD", "1x1 - $1/day - drag", "Space", sf::Color(190, 196, 204), C::INFRASTRUCTURE);
         add(TOOL_WATER, "WATER BODY", "1x1 - drag to fill", "W", sf::Color(64, 140, 220), C::INFRASTRUCTURE);
         add(TOOL_BULLDOZE, "DEMOLISH", "Clear tiles - drag", "X", sf::Color(235, 87, 72), C::INFRASTRUCTURE);
     }

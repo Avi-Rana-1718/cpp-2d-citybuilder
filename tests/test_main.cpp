@@ -22,6 +22,7 @@
 #include "../game/world/WorldGen.hpp"
 #include "../game/world/GroundRenderer.hpp"
 #include "../game/simulation/GameClock.hpp"
+#include "../game/simulation/Economy.hpp"
 
 // RAII helper to silence stdout logs from entity constructors/destructors during tests
 struct ScopedCoutSilence {
@@ -36,6 +37,7 @@ static void clearTestGrid() {
     ScopedCoutSilence silence;
     resetWorldData();
     gameClock = GameClock(); // 1 Mar, Year 1, 1x
+    resetTaxRates();         // every bucket back to 9%
     for (int i = 0; i < tileMapW; i++) {
         for (int j = 0; j < tileMapH; j++) {
             delete entities[i][j];
@@ -131,6 +133,53 @@ TEST_CASE(Test_Toolbar_LayoutAndDefaults) {
         ASSERT_TRUE(side.contains(b.left, b.top) && side.contains(b.left + b.width, b.top + b.height));
         if (i > 0) ASSERT_FALSE(b.intersects(tb.tabBounds(cats[i - 1])));
     }
+}
+
+TEST_CASE(Test_HUD_AdaptsToWindowSize) {
+    ScopedCoutSilence silence;
+    Play_Scene scene;
+    Toolbar& tb = scene.toolbar;
+    tb.init(1500.f, 900.f);
+    auto centre = [](const sf::FloatRect& r) {
+        return sf::Vector2i(static_cast<int>(r.left + r.width / 2.f), static_cast<int>(r.top + r.height / 2.f));
+    };
+
+    // Maximised 1920x1020: panels re-anchor to the new edges instead of stretching
+    scene.onResize(1920, 1020);
+    ASSERT_EQ(screenW, 1920);
+    ASSERT_EQ(screenH, 1020);
+    ASSERT_NEAR(scene.viewPanelBounds().left, 1920.f - 212.f, 0.01f);           // top-right
+    ASSERT_NEAR(tb.pillBounds().top + tb.pillBounds().height, 1020.f - 12.f, 0.01f); // bottom-left
+    sf::FloatRect budget = scene.budgetBounds();
+    ASSERT_NEAR(budget.left + budget.width / 2.f, 960.f, 0.5f);                  // centred
+    ASSERT_NEAR(view.getSize().x / view.getSize().y, 1920.f / 1020.f, 0.001f);    // map not stretched
+
+    // HUD coordinates are window pixels: a click where a button is drawn hits it
+    const sf::Vector2u big(1920, 1020);
+    for (int i = 0; i < GameClock::SPEED_COUNT; i++) {
+        sf::FloatRect b = scene.speedButtonBounds(i);
+        ASSERT_TRUE(b.contains(uikit::hudFromPixel(centre(b), big)));
+    }
+    sf::FloatRect roads = tb.tabBounds(ToolbarCategory::INFRASTRUCTURE);
+    ASSERT_TRUE(tb.handleClick(uikit::hudFromPixel(centre(roads), big)));
+    ASSERT_TRUE(tb.getActiveCategory() == ToolbarCategory::INFRASTRUCTURE);
+    ASSERT_TRUE(tb.handleClick(uikit::hudFromPixel(centre(tb.cardBoundsFor(TOOL_ROAD)), big)));
+    ASSERT_EQ(static_cast<int>(tb.getActiveTool()), static_cast<int>(TOOL_ROAD));
+
+    // A frame drawn before the resize event is handled still maps correctly
+    sf::Vector2f early = uikit::hudFromPixel(sf::Vector2i(1920, 1020), sf::Vector2u(3840, 2040));
+    ASSERT_NEAR(early.x, 960.f, 0.01f);
+    ASSERT_NEAR(early.y, 510.f, 0.01f);
+
+    // Narrow window: top bar drops the city name so the speed buttons still fit
+    scene.onResize(1100, 700);
+    sf::FloatRect last = scene.speedButtonBounds(GameClock::SPEED_COUNT - 1);
+    ASSERT_TRUE(last.left + last.width <= 1100.f);
+    ASSERT_TRUE(scene.moneyChipBounds().left >= 0.f);
+    ASSERT_TRUE(scene.budgetBounds().top >= 48.f);
+
+    scene.onResize(WINDOW_W, WINDOW_H);
+    ASSERT_EQ(screenW, WINDOW_W);
 }
 
 TEST_CASE(Test_Toolbar_FlyoutClickFlow) {
@@ -414,7 +463,6 @@ TEST_CASE(Test_SimulationTick_DrivesBuildings) {
     ASSERT_FALSE(sub->isActive); // sub-tiles sync on the next tick
 
     // Neither update() nor a simulation tick collects tax (that happens per game day)
-    townTaxes[0] = 10;
     money = 1000;
     home->update(0.016f);
     scene.runSimulationTick();
@@ -461,96 +509,91 @@ TEST_CASE(Test_Zone_BoundaryEdgeSafety) {
 TEST_CASE(Test_Economy_TaxationCycle) {
     clearTestGrid();
     ScopedCoutSilence silence;
-    Play_Scene scene;
 
-    money = 500;
-    townTaxes[0] = 10; // 10% residential tax
-    townTaxes[1] = 15; // 15% commercial tax
-
-    ResidentalZone* rz = new ResidentalZone(4, 4);
+    // Tax = occupants x income per occupant x that bucket's rate
+    ResidentalZone* rz = new ResidentalZone(4, 4, 1, 1); // R $
     entities[4][4] = rz;
-    rz->zoneIncome = 100;
+    rz->population = 20;
     rz->isActive = false;
+    ASSERT_NEAR(rz->dailyTax(), 0.f, 0.001f); // no road -> no tax
 
-    // Inactive zones pay nothing
-    ASSERT_NEAR(rz->dailyTax(), 0.f, 0.001f);
-    ASSERT_EQ(scene.collectDailyTaxes(), 0);
-    ASSERT_EQ(money, 500);
-
-    // Active residential: 100 x 10% = $10 per day
     rz->isActive = true;
-    ASSERT_NEAR(rz->dailyTax(), 10.f, 0.001f);
+    taxRates[SECTOR_R][WEALTH_LOW] = 10;
+    ASSERT_NEAR(rz->dailyTax(), 20.f * INCOME_PER_CAPITA[SECTOR_R][WEALTH_LOW] * 0.10f, 0.001f);
 
-    // Commercial uses its own rate: 200 x 15% = $30 per day
-    CommericalZone* cz = new CommericalZone(8, 4);
-    entities[8][4] = cz;
-    cz->zoneIncome = 200;
+    // Empty buildings pay nothing
+    rz->population = 0;
+    ASSERT_NEAR(rz->dailyTax(), 0.f, 0.001f);
+
+    // Each income level has its own slider and richer occupants pay more
+    ResidentalZone* rich = new ResidentalZone(10, 4, 3, 1); // R $$$
+    entities[10][4] = rich;
+    rich->isActive = true;
+    rich->population = 20;
+    ASSERT_EQ(rich->wealth(), static_cast<int>(WEALTH_HIGH));
+    taxRates[SECTOR_R][WEALTH_HIGH] = 5;
+    float before = rich->dailyTax();
+    ASSERT_NEAR(before, 20.f * INCOME_PER_CAPITA[SECTOR_R][WEALTH_HIGH] * 0.05f, 0.001f);
+    taxRates[SECTOR_R][WEALTH_LOW] = 20; // changing R $ does not touch R $$$
+    ASSERT_NEAR(rich->dailyTax(), before, 0.001f);
+
+    // Commercial uses the commercial row of sliders
+    CommericalZone* cz = new CommericalZone(16, 4, 2, 1); // C $$
+    entities[16][4] = cz;
     cz->isActive = true;
-    ASSERT_NEAR(cz->dailyTax(), 30.f, 0.001f);
+    cz->population = 10;
+    taxRates[SECTOR_C][WEALTH_MID] = 15;
+    ASSERT_NEAR(cz->dailyTax(), 10.f * INCOME_PER_CAPITA[SECTOR_C][WEALTH_MID] * 0.15f, 0.001f);
 
-    // One day credits both, every day
-    ASSERT_EQ(scene.collectDailyTaxes(), 40);
-    ASSERT_EQ(money, 540);
-    ASSERT_EQ(scene.getLastDailyIncome(), 40);
-    ASSERT_EQ(scene.collectDailyTaxes(), 40);
-    ASSERT_EQ(money, 580);
-
-    townTaxes[0] = 5;
-    townTaxes[1] = 5;
     clearTestGrid();
 }
-
 TEST_CASE(Test_Economy_DailyTaxCarriesFractions) {
     clearTestGrid();
     ScopedCoutSilence silence;
-    Play_Scene scene;
+    EconomySystem econ;
     money = 0;
-    townTaxes[0] = 5;
 
-    // 30 x 5% = $1.50 per day: pays 1, then 2 (1.5 + carried 0.5), never loses cents
-    ResidentalZone* rz = new ResidentalZone(4, 4);
+    // 5 residents x $3 x 10% = $1.50 per day: credits 1, 2, 1, 2 (no lost cents)
+    taxRates[SECTOR_R][WEALTH_LOW] = 10;
+    ResidentalZone* rz = new ResidentalZone(4, 4, 1, 1);
     entities[4][4] = rz;
-    rz->zoneIncome = 30;
     rz->isActive = true;
-    ASSERT_EQ(scene.collectDailyTaxes(), 1);
-    ASSERT_EQ(scene.collectDailyTaxes(), 2);
-    ASSERT_EQ(scene.collectDailyTaxes(), 1);
-    ASSERT_EQ(scene.collectDailyTaxes(), 2);
+    rz->population = 5;
+    ASSERT_EQ(econ.settle().net, 1);
+    ASSERT_EQ(econ.settle().net, 2);
+    ASSERT_EQ(econ.settle().net, 1);
+    ASSERT_EQ(econ.settle().net, 2);
     ASSERT_EQ(money, 6);
 
     money = 5000;
     clearTestGrid();
 }
-
 TEST_CASE(Test_Time_AdvanceDrivesDaysAndPause) {
     clearTestGrid();
     ScopedCoutSilence silence;
     Play_Scene scene;
-    money = 0;
-    townTaxes[1] = 10;
-    // A harbour has no tier changes, so its daily tax stays fixed: 120 x 10% = $12
-    HarbourZone* hb = new HarbourZone(4, 4);
-    entities[4][4] = hb;
-    hb->isActive = true;
-    ASSERT_NEAR(hb->dailyTax(), 12.f, 0.001f);
+    money = 100;
+    // One road costs $1 upkeep per day: an exact day counter
+    entities[4][4] = new DirtRoad(4, 4);
 
     // 1x: a day every 4 s
     scene.advanceTime(3.9f);
-    ASSERT_EQ(money, 0);
+    ASSERT_EQ(money, 100);
     scene.advanceTime(0.2f);
-    ASSERT_EQ(money, 12);
+    ASSERT_EQ(money, 99);
     ASSERT_EQ(day, 2);
+    ASSERT_EQ(scene.getLastDailyIncome(), -1);
 
     // Paused: nothing moves
     gameClock.togglePause();
     scene.advanceTime(100.f);
-    ASSERT_EQ(money, 12);
+    ASSERT_EQ(money, 99);
     ASSERT_EQ(day, 2);
 
     // 4x: 4 s of real time = 4 days
     gameClock.setSpeedIndex(3);
     scene.advanceTime(4.f);
-    ASSERT_EQ(money, 60);
+    ASSERT_EQ(money, 95);
     ASSERT_EQ(day, 6);
 
     // Speed buttons in the top bar
@@ -562,51 +605,46 @@ TEST_CASE(Test_Time_AdvanceDrivesDaysAndPause) {
     ASSERT_EQ(gameClock.getSpeedMultiplier(), 2);
     ASSERT_TRUE(b.top + b.height <= 48.f); // inside the top bar
 
-    townTaxes[1] = 5;
     money = 5000;
     clearTestGrid();
 }
-
-// -------------------------------------------------------------
-// 7. Population Immigration & Demand Tests
-// -------------------------------------------------------------
 TEST_CASE(Test_Economy_PopulationGrowthAndDemand) {
-    townCapacity[0] = 100;
-    townPopulation[0] = 0;
-    townDemand[0] = 50;
+    clearTestGrid();
+    ScopedCoutSilence silence;
+    EconomySystem econ;
 
-    auto simulateImmigration = []() {
-        for (int i = 0; i < 3; i++) {
-            int k = townCapacity[i] - townPopulation[i];
-            if (townDemand[i] <= 0 || k <= 0) continue;
+    ResidentalZone* home = new ResidentalZone(4, 4, 1, 1);
+    entities[4][4] = home;
+    ResidentalZone* cutOff = new ResidentalZone(10, 4, 1, 1);
+    entities[10][4] = cutOff;
+    home->isActive = true;
+    cutOff->isActive = false; // no road
 
-            int inc = (k > 10) ? (std::rand() % (k / 10) + 1) : (std::rand() % k + 1);
-            townPopulation[i] += inc;
-            townDemand[i] -= inc;
-        }
-    };
+    // Positive R $ demand: the connected home fills over a few days, never past capacity
+    econ.demand[SECTOR_R][WEALTH_LOW] = 60.f;
+    for (int d = 0; d < 30; d++) econ.updateOccupancy();
+    ASSERT_EQ(home->population, home->capacity);
+    ASSERT_EQ(cutOff->population, 0);
 
-    simulateImmigration();
-    ASSERT_TRUE(townPopulation[0] > 0);
-    ASSERT_TRUE(townDemand[0] < 50);
-    ASSERT_EQ(townPopulation[0] + townDemand[0], 50); // Total conserved
+    // Strongly negative demand: people move out
+    econ.demand[SECTOR_R][WEALTH_LOW] = -80.f;
+    econ.updateOccupancy();
+    ASSERT_TRUE(home->population < home->capacity);
 
-    // If demand reaches zero, population must not grow
-    townDemand[0] = 0;
-    int popBefore = townPopulation[0];
-    simulateImmigration();
-    ASSERT_EQ(townPopulation[0], popBefore);
+    // Losing road access empties a building
+    home->isActive = false;
+    for (int d = 0; d < 10; d++) econ.updateOccupancy();
+    ASSERT_EQ(home->population, 0);
 
-    // If capacity equals population, population must not grow
-    townDemand[0] = 100;
-    townCapacity[0] = townPopulation[0];
-    simulateImmigration();
-    ASSERT_EQ(townPopulation[0], popBefore);
+    // Scan totals feed the city-wide counters
+    home->population = 7;
+    econ.scan();
+    ASSERT_EQ(econ.occupants[SECTOR_R][WEALTH_LOW], 7);
+    ASSERT_EQ(townPopulation[0], 7);
+    ASSERT_EQ(townCapacity[0], home->capacity + cutOff->capacity);
+
+    clearTestGrid();
 }
-
-// -------------------------------------------------------------
-// 8. Road Autotiling Logic Tests
-// -------------------------------------------------------------
 TEST_CASE(Test_Roads_AutotilingLogic) {
     clearTestGrid();
     ScopedCoutSilence silence;
@@ -731,12 +769,13 @@ TEST_CASE(Test_FarmZone_RoadActivationAndTaxes) {
     farm->checkValid();
     ASSERT_TRUE(farm->isActive);
 
-    // Active farm pays a daily tax at the industrial rate
-    townTaxes[2] = 10;
+    // An occupied, connected farm pays at the industrial $ rate
+    ASSERT_EQ(farm->sector(), static_cast<int>(SECTOR_I));
+    ASSERT_EQ(farm->wealth(), static_cast<int>(WEALTH_LOW));
+    farm->population = 10;
     ASSERT_TRUE(farm->dailyTax() > 0.f);
     farm->isActive = false;
     ASSERT_NEAR(farm->dailyTax(), 0.f, 0.001f);
-    townTaxes[2] = 5;
 
     clearTestGrid();
 }
@@ -857,7 +896,7 @@ TEST_CASE(Test_HappinessSystem_ScoringAndTierProgression) {
     entities[5][7] = park;
 
     // Setup economy conditions: low taxes, balanced jobs
-    townTaxes[0] = 5;
+    for (int w = 0; w < 3; w++) taxRates[SECTOR_R][w] = 5;
     townPopulation[0] = 30;
     townCapacity[1] = 40;
     townCapacity[2] = 40;
@@ -868,8 +907,8 @@ TEST_CASE(Test_HappinessSystem_ScoringAndTierProgression) {
     ASSERT_TRUE(happySys.cityHappiness >= 60);
     ASSERT_TRUE(rz->overallHappiness >= 60);
 
-    // Residental zone should have auto-upgraded to tier 2!
-    ASSERT_EQ(rz->tier, 2);
+    // Happiness alone no longer upgrades buildings (that needs demand, see Test_Economy_UpgradeNeedsDemand)
+    ASSERT_EQ(rz->tier, 1);
 
     clearTestGrid();
 }
@@ -1433,6 +1472,264 @@ TEST_CASE(Test_VisibleTileRange_MatchesBruteForce) {
     ASSERT_FALSE(off.contains(0, 0));
 }
 
+TEST_CASE(Test_Economy_DemandDrivers) {
+    clearTestGrid();
+    EconomySystem econ;
+
+    // Empty town: low-income homes wanted, high-income needs schools first
+    econ.computeDemand();
+    ASSERT_TRUE(econ.demand[SECTOR_R][WEALTH_LOW] > 0.f);
+    ASSERT_TRUE(econ.demand[SECTOR_R][WEALTH_HIGH] < 0.f);
+
+    // Jobs pull residents: open job capacity raises R demand
+    econ.occupants[SECTOR_R][WEALTH_LOW] = 200;
+    econ.computeDemand();
+    float noJobs = econ.demand[SECTOR_R][WEALTH_LOW];
+    econ.capacity[SECTOR_I][WEALTH_LOW] = 300;
+    econ.computeDemand();
+    ASSERT_TRUE(econ.demand[SECTOR_R][WEALTH_LOW] > noJobs);
+
+    // Residents create customers: C $ demand falls as shops fill up
+    float unserved = econ.demand[SECTOR_C][WEALTH_LOW];
+    econ.occupants[SECTOR_C][WEALTH_LOW] = 120;
+    econ.computeDemand();
+    ASSERT_TRUE(econ.demand[SECTOR_C][WEALTH_LOW] < unserved);
+
+    // Tax: the same increase hurts $$$ more than $
+    econ.avgEducation = 100.f;
+    econ.computeDemand();
+    float lowBefore = econ.demand[SECTOR_R][WEALTH_LOW], highBefore = econ.demand[SECTOR_R][WEALTH_HIGH];
+    taxRates[SECTOR_R][WEALTH_LOW] = 15;
+    taxRates[SECTOR_R][WEALTH_HIGH] = 15;
+    econ.computeDemand();
+    float lowDrop = lowBefore - econ.demand[SECTOR_R][WEALTH_LOW];
+    float highDrop = highBefore - econ.demand[SECTOR_R][WEALTH_HIGH];
+    ASSERT_TRUE(lowDrop > 0.f);
+    ASSERT_TRUE(highDrop > lowDrop);
+    resetTaxRates();
+
+    // Education unlocks medium / high income homes and high-tech industry
+    econ.avgEducation = 0.f;
+    econ.computeDemand();
+    float midNoSchool = econ.demand[SECTOR_R][WEALTH_MID], hiNoSchool = econ.demand[SECTOR_R][WEALTH_HIGH];
+    float techNoSchool = econ.demand[SECTOR_I][WEALTH_HIGH];
+    econ.avgEducation = 100.f;
+    econ.computeDemand();
+    ASSERT_TRUE(econ.demand[SECTOR_R][WEALTH_MID] > midNoSchool);
+    ASSERT_TRUE(econ.demand[SECTOR_R][WEALTH_HIGH] > hiNoSchool);
+    ASSERT_TRUE(econ.demand[SECTOR_I][WEALTH_HIGH] > techNoSchool);
+
+    // Pollution near homes hits $$$ hardest
+    float lowClean = econ.demand[SECTOR_R][WEALTH_LOW], hiClean = econ.demand[SECTOR_R][WEALTH_HIGH];
+    econ.avgPollution = 50.f;
+    econ.computeDemand();
+    ASSERT_TRUE(hiClean - econ.demand[SECTOR_R][WEALTH_HIGH] > lowClean - econ.demand[SECTOR_R][WEALTH_LOW]);
+    econ.avgPollution = 0.f;
+
+    // Happiness: unhappy cities want fewer newcomers
+    econ.happiness = 80;
+    econ.computeDemand();
+    float happy = econ.demand[SECTOR_R][WEALTH_MID];
+    econ.happiness = 20;
+    econ.computeDemand();
+    ASSERT_TRUE(econ.demand[SECTOR_R][WEALTH_MID] < happy);
+
+    // Always clamped to -100..100, with a readable reason
+    for (int s = 0; s < 3; s++)
+        for (int w = 0; w < 3; w++) {
+            ASSERT_TRUE(econ.demand[s][w] >= -100.f && econ.demand[s][w] <= 100.f);
+            ASSERT_FALSE(econ.limitingFactor(s, w).empty());
+        }
+    clearTestGrid();
+}
+
+TEST_CASE(Test_Economy_UpgradeNeedsDemand) {
+    clearTestGrid();
+    ScopedCoutSilence silence;
+    EconomySystem econ;
+    econ.happiness = 80;
+
+    ResidentalZone* home = new ResidentalZone(4, 4, 1, 1);
+    entities[4][4] = home;
+    home->isActive = true;
+    home->overallHappiness = 85;
+
+    // Full and happy, but no medium-income demand: stays tier 1
+    econ.demand[SECTOR_R][WEALTH_LOW] = 50.f;
+    econ.demand[SECTOR_R][WEALTH_MID] = 0.f;
+    for (int d = 0; d < 40; d++) { econ.dayCounter++; econ.updateOccupancy(); }
+    ASSERT_EQ(home->population, home->capacity);
+    ASSERT_EQ(home->tier, 1);
+
+    // With $$ demand it moves up within a few weeks
+    econ.demand[SECTOR_R][WEALTH_MID] = 60.f;
+    for (int d = 0; d < 40 && home->tier == 1; d++) { econ.dayCounter++; econ.updateOccupancy(); }
+    ASSERT_EQ(home->tier, 2);
+    ASSERT_EQ(home->wealth(), static_cast<int>(WEALTH_MID));
+    ASSERT_TRUE(home->population <= home->capacity);
+
+    // Unhappy homes do not upgrade even with demand
+    ResidentalZone* sad = new ResidentalZone(10, 4, 1, 1);
+    entities[10][4] = sad;
+    sad->isActive = true;
+    sad->overallHappiness = 30;
+    for (int d = 0; d < 40; d++) { econ.dayCounter++; econ.updateOccupancy(); }
+    ASSERT_EQ(sad->tier, 1);
+
+    clearTestGrid();
+}
+
+TEST_CASE(Test_Economy_UpkeepAndReport) {
+    clearTestGrid();
+    ScopedCoutSilence silence;
+    EconomySystem econ;
+    money = 1000;
+
+    entities[2][2] = new DirtRoad(2, 2);
+    entities[3][2] = new DirtRoad(3, 2);
+    entities[4][2] = new DirtRoad(4, 2);
+    SchoolZone* school = new SchoolZone(10, 10);
+    entities[10][10] = school;
+    ParkZone* park = new ParkZone(20, 20);
+    entities[20][20] = park;
+
+    DayReport r = econ.settle();
+    ASSERT_EQ(r.roadTiles, 3);
+    ASSERT_EQ(r.upkeepRoads, 3 * UPKEEP_ROAD);
+    ASSERT_EQ(r.upkeepSchools, UPKEEP_SCHOOL);
+    ASSERT_EQ(r.upkeepParks, UPKEEP_PARK);
+    ASSERT_EQ(r.net, -(3 * UPKEEP_ROAD + UPKEEP_SCHOOL + UPKEEP_PARK));
+    ASSERT_EQ(money, 1000 + r.net);
+
+    // Private homes cost nothing to run
+    ResidentalZone rz(30, 30);
+    ASSERT_EQ(rz.dailyUpkeep(), 0);
+
+    money = 5000;
+    clearTestGrid();
+}
+
+TEST_CASE(Test_Economy_LoansAndBankruptcy) {
+    clearTestGrid();
+    ScopedCoutSilence silence;
+    EconomySystem econ;
+    money = 5000; // enough to cover the interest, so repaying never dips into debt
+
+    // Loans: +$10,000 each, at most 3
+    ASSERT_TRUE(econ.takeLoan());
+    ASSERT_EQ(money, 5000 + LOAN_AMOUNT);
+    ASSERT_TRUE(econ.takeLoan());
+    ASSERT_TRUE(econ.takeLoan());
+    ASSERT_FALSE(econ.takeLoan());
+    ASSERT_EQ(money, 5000 + 3 * LOAN_AMOUNT);
+
+    // Repaid daily with 10% interest over a year, then gone
+    float daily = econ.dailyLoanPayments();
+    ASSERT_NEAR(daily, 3.f * LOAN_AMOUNT * 1.1f / 360.f, 0.01f);
+    for (int d = 0; d < LOAN_TERM_DAYS; d++) econ.settle();
+    ASSERT_EQ(static_cast<int>(econ.loans.size()), 0);
+    ASSERT_NEAR(static_cast<float>(5000 + 3 * LOAN_AMOUNT - money), 3.f * LOAN_AMOUNT * 1.1f, 2.f);
+    ASSERT_EQ(econ.daysInDebt, 0);
+    ASSERT_TRUE(econ.canTakeLoan());
+
+    // Debt clock: recovering resets it
+    money = -100;
+    econ.settle();
+    econ.settle();
+    ASSERT_EQ(econ.daysInDebt, 2);
+    money = 500;
+    econ.settle();
+    ASSERT_EQ(econ.daysInDebt, 0);
+
+    // 180 days in the red = bankrupt
+    money = -100;
+    for (int d = 0; d < DEBT_LIMIT_DAYS - 1; d++) econ.settle();
+    ASSERT_FALSE(econ.bankrupt);
+    ASSERT_EQ(econ.daysUntilBankrupt(), 1);
+    econ.settle();
+    ASSERT_TRUE(econ.bankrupt);
+    ASSERT_FALSE(econ.canTakeLoan());
+
+    money = 5000;
+    clearTestGrid();
+}
+
+TEST_CASE(Test_Economy_BankruptCityAndRestart) {
+    clearTestGrid();
+    ScopedCoutSilence silence;
+    Play_Scene scene;
+    money = 5000;
+    scene.economy.bankrupt = true;
+
+    std::string reason;
+    ASSERT_FALSE(scene.canPlaceTile(10, 10, TOOL_ROAD, &reason));
+    ASSERT_TRUE(reason.find("bankrupt") != std::string::npos);
+
+    // Time stops on the game-over screen
+    long daysBefore = gameClock.getTotalDays();
+    scene.advanceTime(40.f);
+    ASSERT_EQ(gameClock.getTotalDays(), daysBefore);
+
+    // A new city resets money, economy and taxes
+    taxRates[SECTOR_C][WEALTH_HIGH] = 20;
+    scene.startNewCity(4242u);
+    ASSERT_FALSE(scene.economy.bankrupt);
+    ASSERT_EQ(money, STARTING_MONEY);
+    ASSERT_EQ(taxRates[SECTOR_C][WEALTH_HIGH], TAX_DEFAULT);
+    ASSERT_EQ(worldSeed, 4242u);
+    ASSERT_TRUE(scene.canPlaceTile(worldSpawnX, worldSpawnY, TOOL_ROAD));
+
+    money = 5000;
+    clearTestGrid();
+}
+
+TEST_CASE(Test_Budget_SlidersAndButtons) {
+    clearTestGrid();
+    ScopedCoutSilence silence;
+    Play_Scene scene;
+    money = 0;
+    scene.setBudgetOpen(true);
+
+    // Panel fits on screen below the top bar
+    sf::FloatRect b = scene.budgetBounds();
+    ASSERT_TRUE(b.left >= 0.f && b.top > 48.f);
+    ASSERT_TRUE(b.left + b.width <= 1500.f && b.top + b.height <= 900.f);
+
+    // Pressing a slider's ends sets 0% / 20%; dragging follows the mouse
+    sf::FloatRect t = scene.taxSliderBounds(SECTOR_I, WEALTH_MID);
+    float midY = t.top + t.height / 2.f;
+    ASSERT_TRUE(scene.handleBudgetPointer(sf::Vector2f(t.left, midY), true, true));
+    ASSERT_EQ(taxRates[SECTOR_I][WEALTH_MID], TAX_MIN);
+    ASSERT_TRUE(scene.handleBudgetPointer(sf::Vector2f(t.left + t.width, midY + 40.f), true, false)); // drag off the track
+    ASSERT_EQ(taxRates[SECTOR_I][WEALTH_MID], TAX_MAX);
+    scene.handleBudgetPointer(sf::Vector2f(t.left + t.width / 2.f, midY), false, false);            // release
+    ASSERT_EQ(taxRates[SECTOR_I][WEALTH_MID], TAX_MAX);
+    ASSERT_EQ(taxRates[SECTOR_I][WEALTH_LOW], TAX_DEFAULT); // other sliders untouched
+
+    // Sliders do not overlap each other
+    for (int s = 0; s < 3; s++)
+        for (int w = 0; w < 3; w++)
+            for (int s2 = 0; s2 < 3; s2++)
+                for (int w2 = 0; w2 < 3; w2++)
+                    if (s * 3 + w != s2 * 3 + w2)
+                        ASSERT_FALSE(scene.taxSliderBounds(s, w).intersects(scene.taxSliderBounds(s2, w2)));
+
+    // Loan button pays out; close button hides the panel
+    sf::FloatRect lb = scene.loanButtonBounds();
+    ASSERT_TRUE(scene.handleBudgetPointer(sf::Vector2f(lb.left + 5.f, lb.top + 5.f), true, true));
+    ASSERT_EQ(money, LOAN_AMOUNT);
+    sf::FloatRect xb = scene.budgetCloseBounds();
+    ASSERT_TRUE(scene.handleBudgetPointer(sf::Vector2f(xb.left + 5.f, xb.top + 5.f), true, true));
+    ASSERT_FALSE(scene.isBudgetOpen());
+
+    // Clicks outside the panel are left for the map
+    scene.setBudgetOpen(true);
+    ASSERT_FALSE(scene.handleBudgetPointer(sf::Vector2f(5.f, 880.f), true, true));
+
+    money = 5000;
+    clearTestGrid();
+}
+
 TEST_CASE(Test_GameClock_CalendarAndSeasons) {
     GameClock c;
     // Starts 1 Mar, Year 1 (spring), 1x
@@ -1512,10 +1809,10 @@ TEST_CASE(Test_GameClock_SpeedAndPause) {
 TEST_CASE(Test_Farm_SeasonalYield) {
     clearTestGrid();
     ScopedCoutSilence silence;
-    townTaxes[2] = 10;
     FarmZone* farm = new FarmZone(4, 4, 1);
     entities[4][4] = farm;
     farm->isActive = true;
+    farm->population = 10;
 
     gameClock.setDate(1, 4, 1);  float spring = farm->dailyTax();
     gameClock.setDate(1, 7, 1);  float summer = farm->dailyTax();
@@ -1529,7 +1826,6 @@ TEST_CASE(Test_Farm_SeasonalYield) {
     ASSERT_NEAR(autumn / spring, 1.5f, 0.01f);
     ASSERT_NEAR(winter / spring, 0.3f, 0.01f);
 
-    townTaxes[2] = 5;
     clearTestGrid();
 }
 
