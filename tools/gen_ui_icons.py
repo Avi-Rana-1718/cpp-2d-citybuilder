@@ -193,6 +193,111 @@ def view_deposits():
     return img
 
 
+def view_traffic():
+    img, d = canvas()
+    d.rounded_rectangle((1, 6, 14, 12), radius=2, fill=(225, 225, 225, 255), outline=INK)   # body
+    d.polygon([(4, 6), (6, 3), (10, 3), (12, 6)], fill=(200, 200, 200, 255), outline=INK)  # cabin
+    d.ellipse((3, 10, 6, 13), fill=DARK)
+    d.ellipse((9, 10, 12, 13), fill=DARK)
+    return img
+
+
+BOLT = [(9, 1), (3, 9), (7, 9), (6, 15), (13, 6), (9, 6), (11, 1)]
+
+
+def bolt(d, fill, outline=INK, dx=0, dy=0):
+    d.polygon([(x + dx, y + dy) for x, y in BOLT], fill=fill, outline=outline)
+
+
+def drop(d, box, fill, outline=INK):
+    x0, y0, x1, y1 = box
+    cx = (x0 + x1) // 2
+    d.polygon([(cx, y0), (x1 - 1, y0 + (y1 - y0) * 3 // 5), (x0 + 1, y0 + (y1 - y0) * 3 // 5)], fill=fill)
+    d.ellipse((x0, y0 + (y1 - y0) * 2 // 5, x1, y1), fill=fill, outline=outline)
+
+
+def utilities():
+    """Sidebar: yellow bolt in front of a blue drop."""
+    img, d = canvas()
+    drop(d, (6, 1, 15, 14), (70, 160, 235, 255))
+    bolt(d, (250, 205, 50, 255), dx=-2, dy=0)
+    return img
+
+
+def view_power():
+    img, d = canvas()
+    bolt(d, (225, 225, 225, 255))
+    return img
+
+
+def view_tap():
+    """Water supply: a tap with a drop (tinted at runtime)."""
+    img, d = canvas()
+    d.rectangle((2, 3, 11, 6), fill=(225, 225, 225, 255), outline=INK)    # spout pipe
+    d.rectangle((8, 6, 11, 9), fill=(225, 225, 225, 255), outline=INK)    # nozzle
+    d.rectangle((5, 1, 7, 3), fill=(200, 200, 200, 255))                  # handle
+    drop(d, (7, 9, 13, 15), (225, 225, 225, 255))
+    return img
+
+
+def no_power():
+    img, d = canvas()
+    d.ellipse((0, 0, 15, 15), fill=(220, 50, 45, 255), outline=(255, 255, 255, 255))
+    bolt(d, (255, 220, 60, 255), outline=(60, 20, 10, 255))
+    return img
+
+
+def no_water():
+    img, d = canvas()
+    d.ellipse((0, 0, 15, 15), fill=(220, 50, 45, 255), outline=(255, 255, 255, 255))
+    drop(d, (4, 2, 11, 13), (120, 200, 255, 255), outline=(20, 40, 80, 255))
+    return img
+
+
+def power_line():
+    """Pylon with wires."""
+    img, d = canvas()
+    d.line((8, 2, 8, 15), fill=(150, 156, 168, 255), width=2)
+    d.line((3, 4, 13, 4), fill=(150, 156, 168, 255), width=2)
+    d.line((4, 8, 12, 8), fill=(150, 156, 168, 255), width=1)
+    d.line((0, 6, 3, 4), fill=(250, 205, 50, 255))
+    d.line((13, 4, 15, 7), fill=(250, 205, 50, 255))
+    d.line((8, 15, 4, 12), fill=(120, 126, 138, 255))
+    d.line((8, 15, 12, 12), fill=(120, 126, 138, 255))
+    return img
+
+
+def water_pipe():
+    """Pipe elbow with a drop."""
+    img, d = canvas()
+    d.rectangle((1, 9, 11, 13), fill=(70, 160, 235, 255), outline=INK)
+    d.rectangle((8, 2, 12, 13), fill=(70, 160, 235, 255), outline=INK)
+    d.rectangle((0, 8, 2, 14), fill=(150, 156, 168, 255))
+    d.rectangle((7, 1, 13, 3), fill=(150, 156, 168, 255))
+    d.rectangle((9, 10, 11, 12), fill=(110, 190, 250, 255))
+    return img
+
+
+def view_land():
+    """Land value: a house with a coin."""
+    img, d = canvas()
+    d.polygon([(1, 8), (7, 2), (13, 8)], fill=(200, 200, 200, 255), outline=INK)
+    d.rectangle((3, 8, 11, 14), fill=(225, 225, 225, 255), outline=INK)
+    d.ellipse((9, 9, 15, 15), fill=(250, 205, 50, 255), outline=(150, 110, 20, 255))
+    return img
+
+
+def waste():
+    """Waste tab: a bin with a lid."""
+    img, d = canvas()
+    d.polygon([(3, 5), (13, 5), (12, 15), (4, 15)], fill=(150, 160, 150, 255), outline=INK)
+    d.rectangle((2, 3, 14, 5), fill=(120, 130, 120, 255), outline=INK)
+    d.rectangle((6, 1, 10, 3), fill=(120, 130, 120, 255), outline=INK)
+    for x in (6, 8, 10):
+        d.line((x, 7, x, 13), fill=(90, 100, 90, 255))
+    return img
+
+
 def warning():
     img, d = canvas()
     d.polygon([(8, 1), (15, 14), (1, 14)], fill=(245, 196, 40, 255), outline=INK)
@@ -235,8 +340,10 @@ ICONS = {
     "season_spring": season_spring, "season_summer": season_summer,
     "season_autumn": season_autumn, "season_winter": season_winter,
     "view_normal": view_normal, "view_fertility": view_fertility,
-    "view_water": view_water, "view_deposits": view_deposits,
+    "view_water": view_water, "view_deposits": view_deposits, "view_traffic": view_traffic,
     "warning": warning, "star": star,
+    "utilities": utilities, "view_power": view_power, "view_tap": view_tap,
+    "no_power": no_power, "no_water": no_water, "power_line": power_line, "water_pipe": water_pipe, "view_land": view_land, "waste": waste,
     "speed_pause": speed_pause, "speed_1": triangles(1), "speed_2": triangles(2), "speed_4": triangles(3),
 }
 
