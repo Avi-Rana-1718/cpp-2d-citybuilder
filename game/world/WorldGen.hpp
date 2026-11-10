@@ -511,6 +511,7 @@ private:
                 Terrain t = world[i][j].terrain;
                 if (t == Terrain::Water) {
                     world[i][j].groundwater = 0;
+                    world[i][j].groundwaterMax = 0;
                     continue;
                 }
                 float g = (1.f - std::min(1.f, std::max(0.f, height[i][j]))) * 55.f;
@@ -518,6 +519,7 @@ private:
                 g += (fbm(static_cast<float>(i), static_cast<float>(j), 2, 1.f / 8.f, seed + 404u) - 0.5f) * 30.f;
                 if (t == Terrain::Rock) g *= 0.5f;
                 world[i][j].groundwater = clampByte(g);
+                world[i][j].groundwaterMax = world[i][j].groundwater;
             }
         }
     }

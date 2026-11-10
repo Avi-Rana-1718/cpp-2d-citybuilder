@@ -11,11 +11,18 @@ Every game starts on a procedurally generated 64×64 island. Build roads, homes,
 ## Features
 
 - **Procedural worlds:** seeded terrain with ocean coastlines, lakes, rivers, beaches, forests with trails and rocky hills. Each tile also has soil fertility, groundwater and coal / iron / stone deposits. The same seed always gives the same map.
+- **Zones:** drag to paint residential, commercial or industrial zones in low, medium or high density. Buildings grow on zoned land next to roads while there is demand, and upgrade up to the tier the density allows. You can also place a specific building by hand; placed buildings keep their tier.
 - **Demand by income level:** residential, commercial and industrial demand is tracked separately for low ($), medium ($$) and high ($$$) income. Buildings only fill with people while their income level has demand.
 - **Economy:** nine tax sliders, one per sector and income level. Daily tax income, daily upkeep for roads and services, loans, and bankruptcy after 6 months in debt.
 - **Time and seasons:** pause, 1x, 2x or 4x speed and a 360-day calendar. Seasons change the look of the map: autumn forests, winter snow. Farms also produce more or less by season.
 - **Services and happiness:** schools, churches and parks cover nearby homes. Happiness depends on jobs, education, health, safety and taxes.
-- **Interface:** sidebar build menu with building thumbnails and prices, status bar, budget panel, inspect card, map views for fertility, groundwater and deposits. The window can be resized freely.
+- **Roads & traffic:** dirt, asphalt and avenue tiers with drag-to-upgrade, autotiled corners / T-junctions / crossings, bridges, roundabouts, an outside connection at the map edge, and a daily commute model whose jams cost happiness. Cars drive the busiest routes.
+- **Power & water:** coal, wind and solar plants feed the grid through roads or dragged power lines, and water travels through roads or underground pipes, so plants and pumps can stand away from the road; transformers step the power down for the buildings on their grid. Wells and underground pumps draw on the groundwater reserve, which drains as you pump and recharges slowly; treatment plants clean pump water and towers store spare water. Demand grows with population, building tier and city size, and from 150 citizens on, unserved buildings stop growing and shrink.
+- **City services:** police (safety), fire stations (fires can break out and spread in bigger towns), clinics (health), bus depots (fewer cars, with buses on the roads) and mines on coal / iron / stone deposits.
+- **Waste and sewage:** garbage has to go somewhere: landfills fill up for good, incinerators burn it (polluting, but they make power) and recycling centres handle it cleanly. Waste water needs a sewage outflow into a lake or the sea (polluting) or a treatment plant.
+- **Land value:** parks, schools, shops, services and water raise it; pollution and jams lower it. Buildings need it to upgrade.
+- **Save, load and undo:** `F5` saves, `F9` loads, the city autosaves monthly and on exit, and `Z` undoes the last build. `L` opens the message log.
+- **Interface:** sidebar build menu with building thumbnails and prices, status bar, budget panel, inspect card, map views for fertility, groundwater, deposits, traffic, and power and water (showing every line and pipe). The window can be resized freely.
 
 ![Budget panel in autumn](docs/images/budget-autumn.png)
 
@@ -32,7 +39,7 @@ cmake -S . -B build -G "MinGW Makefiles"
 # Build the game and the test runner
 cmake --build build
 
-# Run the tests (59)
+# Run the tests (100)
 .\build\citybuilder_tests.exe
 # or: ctest --test-dir build --output-on-failure
 
@@ -46,7 +53,7 @@ The build copies the SFML DLLs, the font and all sprites into `build/`.
 
 ## How to play
 
-1. Lay **roads** (`Space`, drag to draw). Buildings only work when a road runs along one of their edges.
+1. Lay **roads** (`Space`, drag to draw) and run one to the **map edge** for an outside connection. Buildings only work when a road runs along one of their edges.
 2. Place **homes** (`R`), then **shops** (`C`) and **industry** (`I`) to give residents jobs. Watch the 9 demand bars in the top bar.
 3. Add a **school** (`1`) so medium- and high-income residents will move in, and **parks** (`3`) to keep people healthy.
 4. Open the **budget** (`B`) to check income against upkeep and adjust taxes. Stay out of debt for long, or the city goes bankrupt.
@@ -60,12 +67,16 @@ The build copies the SFML DLLs, the font and all sprites into `build/`.
 | **Right click** / `Esc` | Cancel the drag or tool; `Esc` also closes the budget |
 | `W` `A` `S` `D` / arrows | Pan the camera (`Shift` = faster) |
 | `Q` / `E` (or `+` / `-`) | Zoom in / out |
-| `R` `C` `I` `F` | Residential, Commercial, Industrial, Farm |
+| `R` `C` `I` `F` | Low-density Residential / Commercial / Industrial zone, Farm |
 | `1` `2` `3` `H` | School, Church, Park, Harbour |
 | `Space` `W` `X` | Road, Water, Demolish |
+| `U` | Power & water buildings |
 | `P`, `[`, `]` | Pause, slower, faster (or use the top-bar buttons) |
 | `B` | Budget (or click the money chip) |
-| `O` | Map view: Normal, Fertility, Groundwater, Deposits |
+| `O` | Map view: Normal, Fertility, Groundwater, Deposits, Traffic, Power, Water, Land value |
+| `F5` / `F9` | Save / load (`city.sav`; the autosave if there is none) |
+| `Z` | Undo the last build |
+| `L` | Message log |
 | `N` | Found a new city after bankruptcy |
 
 ### Launch options
@@ -75,6 +86,8 @@ The build copies the SFML DLLs, the font and all sprites into `build/`.
 | `--seed N` | Replay a specific world (the seed is shown bottom-right) |
 | `--size WxH` | Starting window size, e.g. `--size 1920x1080` |
 | `--month N` | Start in month N, e.g. `--month 1` for winter |
+| `--starter` | Start in a ready-made showcase town with every road, utility and service type |
+| `--load file.sav` | Open a saved city |
 
 Developer options (benchmarks, balance simulation, screenshots) are listed in [agents.md](agents.md).
 
@@ -94,7 +107,7 @@ cpp-2d-citybuilder/
 │   └── ui/                  # UI kit, build menu
 ├── assets/sprites/          # Pixel-art sprites and UI icons
 ├── tools/                   # Python sprite / icon generators
-├── tests/                   # Test framework and 59 tests
+├── tests/                   # Test framework and 100 tests
 └── docs/                    # Gameplay and simulation guide
 ```
 

@@ -32,12 +32,31 @@ enum class Deposit : uint8_t {
 struct TileData {
     Terrain terrain = Terrain::Grass;
     uint8_t fertility = 50;      // 0-100, surface soil quality (always visible)
-    uint8_t groundwater = 0;     // 0-100, underground water table
+    uint8_t groundwater = 0;     // 0-100, underground water table (live reserve: wells and pumps drain it)
+    uint8_t groundwaterMax = 0;  // natural level the reserve recharges towards
+    uint8_t lines = 0;           // utility lines on / under the tile (LINE_POWER | LINE_PIPE)
+    uint8_t zone = 0;            // painted zone: 0 none, else 1 + sector * 3 + density (see zoneSector)
+    uint8_t landValue = 50;      // 0-100, recomputed daily (ServiceSystem::computeLandValue)
     Deposit deposit = Deposit::None;
     uint8_t depositAmount = 0;   // 0-100, richness of the deposit
 };
 
 inline TileData world[tileMapW][tileMapH];
+
+// Utility lines: power lines stand on the surface (land or across a road),
+// water pipes run underground (also under roads and buildings)
+enum : uint8_t { LINE_POWER = 1, LINE_PIPE = 2 };
+// Zones: R / C / I (sector 0-2) x Low / Medium / High density (0-2). Buildings
+// grow by themselves on zoned land; density caps the tier they can reach.
+inline uint8_t makeZone(int sector, int density) { return static_cast<uint8_t>(1 + sector * 3 + density); }
+inline int zoneSector(uint8_t z) { return z == 0 ? -1 : (z - 1) / 3; }
+inline int zoneDensity(uint8_t z) { return z == 0 ? -1 : (z - 1) % 3; }
+inline int zoneMaxTier(uint8_t z) { return zoneDensity(z) + 1; }
+inline const char* zoneDensityName(int d) { return d == 0 ? "Low density" : (d == 1 ? "Medium density" : "High density"); }
+
+inline bool hasLine(int x, int y, uint8_t line) {
+    return x >= 0 && x < tileMapW && y >= 0 && y < tileMapH && (world[x][y].lines & line) != 0;
+}
 inline uint32_t worldSeed = 0;   // 0 = pick a random seed at scene init
 inline int worldSpawnX = tileMapW / 2;
 inline int worldSpawnY = tileMapH / 2;
@@ -148,7 +167,29 @@ inline bool borderHasKind(int x, int y, const char* kind) {
     return false;
 }
 
-inline bool hasAdjacentRoad(int x, int y)  { return borderHasKind(x, y, "DirtRoad"); }
+// Road tiles are named by tier; bridges are "Bridge" whatever their tier
+inline const char* roadTierName(int tier) {
+    return tier == 2 ? "Avenue" : (tier == 1 ? "AsphaltRoad" : "DirtRoad");
+}
+inline int roadTierOfName(const std::string& kind) {
+    if (kind == "Avenue") return 2;
+    if (kind == "AsphaltRoad") return 1;
+    if (kind == "DirtRoad") return 0;
+    return -1;
+}
+// Any tile cars can drive on (land roads and bridges)
+inline bool isRoadName(const std::string& kind) {
+    return roadTierOfName(kind) >= 0 || kind == "Bridge";
+}
+inline bool isRoadAt(int x, int y) { return inWorldBounds(x, y) && isRoadName(tileKind(x, y)); }
+
+// Buildings take access only from land roads, never from a bridge deck
+inline bool hasAdjacentRoad(int x, int y) {
+    for (const auto& o : BORDER_2X2) {
+        if (roadTierOfName(tileKind(x + o[0], y + o[1])) >= 0) return true;
+    }
+    return false;
+}
 inline bool hasAdjacentWater(int x, int y) { return borderHasKind(x, y, "Water"); }
 
 // Removes every structure; the map is then pure natural ground from world[][]

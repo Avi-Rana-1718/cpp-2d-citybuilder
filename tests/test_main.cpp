@@ -44,6 +44,20 @@ static void clearTestGrid() {
             entities[i][j] = NULL;
         }
     }
+    roadNet.clear();
+    traffic.reset();
+    utilities.reset();
+    services.reset();
+}
+
+// Dirt road from the west border tile of a 2x2 building rooted at (x, y)
+// to the map edge, so the building has an outside connection
+static void connectToOutside(int x, int y) {
+    for (int i = 0; i <= x - 1; i++) {
+        delete entities[i][y];
+        entities[i][y] = new DirtRoad(i, y);
+    }
+    roadNet.rebuild();
 }
 
 // -------------------------------------------------------------
@@ -148,7 +162,7 @@ TEST_CASE(Test_HUD_AdaptsToWindowSize) {
     scene.onResize(1920, 1020);
     ASSERT_EQ(screenW, 1920);
     ASSERT_EQ(screenH, 1020);
-    ASSERT_NEAR(scene.viewPanelBounds().left, 1920.f - 212.f, 0.01f);           // top-right
+    ASSERT_NEAR(scene.viewPanelBounds().left, 1920.f - 404.f, 0.01f);           // top-right
     ASSERT_NEAR(tb.pillBounds().top + tb.pillBounds().height, 1020.f - 12.f, 0.01f); // bottom-left
     sf::FloatRect budget = scene.budgetBounds();
     ASSERT_NEAR(budget.left + budget.width / 2.f, 960.f, 0.5f);                  // centred
@@ -282,45 +296,38 @@ TEST_CASE(Test_DragComputation_RectangularBox) {
 }
 
 TEST_CASE(Test_DragComputation_RoadLPath) {
-    auto computeRoadPath = [](sf::Vector2i start, sf::Vector2i curr) {
-        std::vector<sf::Vector2i> tiles;
-        int stepX = (curr.x >= start.x) ? 1 : -1;
-        int stepY = (curr.y >= start.y) ? 1 : -1;
-
-        for (int x = start.x; ; x += stepX) {
-            tiles.push_back({x, start.y});
-            if (x == curr.x) break;
-        }
-        for (int y = start.y + stepY; ; y += stepY) {
-            if ((stepY > 0 && y > curr.y) || (stepY < 0 && y < curr.y)) break;
-            tiles.push_back({curr.x, y});
-            if (y == curr.y) break;
-        }
-        return tiles;
+    // Every step of a road drag shares a diamond edge with the previous tile
+    auto edgeStep = [](sf::Vector2i a, sf::Vector2i b) {
+        for (const auto& d : ROAD_DIR)
+            if (b.x - a.x == d[0] && b.y - a.y == d[1]) return true;
+        return false;
     };
 
-    // Horizontal road (3, 2) to (7, 2) -> 5 tiles
-    auto hRoad = computeRoadPath({3, 2}, {7, 2});
+    // Along x (SE): (3, 2) to (7, 2) -> 5 tiles in a straight line
+    auto hRoad = roadDragPath({3, 2}, {7, 2});
     ASSERT_EQ(hRoad.size(), 5);
     for (size_t i = 0; i < hRoad.size(); i++) {
         ASSERT_EQ(hRoad[i].x, 3 + static_cast<int>(i));
         ASSERT_EQ(hRoad[i].y, 2);
     }
 
-    // Vertical road (4, 1) to (4, 5) -> 5 tiles
-    auto vRoad = computeRoadPath({4, 1}, {4, 5});
-    ASSERT_EQ(vRoad.size(), 5);
-    for (size_t i = 0; i < vRoad.size(); i++) {
-        ASSERT_EQ(vRoad[i].x, 4);
-        ASSERT_EQ(vRoad[i].y, 1 + static_cast<int>(i));
-    }
+    // Along NE (+1, -1): (5, 8) to (8, 5) -> 4 tiles
+    auto dRoad = roadDragPath({5, 8}, {8, 5});
+    ASSERT_EQ(dRoad.size(), 4);
+    ASSERT_EQ(dRoad[3].x, 8); ASSERT_EQ(dRoad[3].y, 5);
 
-    // L-shaped road (2, 2) to (4, 4) -> (2,2), (3,2), (4,2) then (4,3), (4,4) -> 5 tiles
-    auto lRoad = computeRoadPath({2, 2}, {4, 4});
-    ASSERT_EQ(lRoad.size(), 5);
-    ASSERT_EQ(lRoad[0].x, 2); ASSERT_EQ(lRoad[0].y, 2);
-    ASSERT_EQ(lRoad[2].x, 4); ASSERT_EQ(lRoad[2].y, 2); // Corner
-    ASSERT_EQ(lRoad[4].x, 4); ASSERT_EQ(lRoad[4].y, 4); // End
+    // Any drag (here straight down the screen, which is tip-touching) becomes
+    // an edge-connected L that ends exactly on the target
+    for (int sx = 2; sx < 9; sx += 3)
+        for (int ex = 0; ex < 12; ex += 2)
+            for (int ey = 0; ey < 12; ey += 3) {
+                auto path = roadDragPath({sx, 6}, {ex, ey});
+                ASSERT_EQ(path.front().x, sx);
+                ASSERT_EQ(path.back().x, ex);
+                ASSERT_EQ(path.back().y, ey);
+                for (size_t k = 1; k < path.size(); k++) ASSERT_TRUE(edgeStep(path[k - 1], path[k]));
+            }
+
 }
 
 // -------------------------------------------------------------
@@ -553,14 +560,15 @@ TEST_CASE(Test_Economy_DailyTaxCarriesFractions) {
     EconomySystem econ;
     money = 0;
 
-    // 5 residents x $3 x 10% = $1.50 per day: credits 1, 2, 1, 2 (no lost cents)
+    // 3 residents x $4 x 10% = $1.20 per day: credits 1, 1, 1, 1, 2 (no lost cents)
     taxRates[SECTOR_R][WEALTH_LOW] = 10;
     ResidentalZone* rz = new ResidentalZone(4, 4, 1, 1);
     entities[4][4] = rz;
     rz->isActive = true;
-    rz->population = 5;
+    rz->population = 3;
     ASSERT_EQ(econ.settle().net, 1);
-    ASSERT_EQ(econ.settle().net, 2);
+    ASSERT_EQ(econ.settle().net, 1);
+    ASSERT_EQ(econ.settle().net, 1);
     ASSERT_EQ(econ.settle().net, 1);
     ASSERT_EQ(econ.settle().net, 2);
     ASSERT_EQ(money, 6);
@@ -619,6 +627,7 @@ TEST_CASE(Test_Economy_PopulationGrowthAndDemand) {
     entities[10][4] = cutOff;
     home->isActive = true;
     cutOff->isActive = false; // no road
+    connectToOutside(4, 4);
 
     // Positive R $ demand: the connected home fills over a few days, never past capacity
     econ.demand[SECTOR_R][WEALTH_LOW] = 60.f;
@@ -649,32 +658,23 @@ TEST_CASE(Test_Roads_AutotilingLogic) {
     clearTestGrid();
     ScopedCoutSilence silence;
 
-    delete entities[5][5];
-    DirtRoad* road = new DirtRoad(5, 5);
-    entities[5][5] = road;
-
-    // Isolated road: check() runs safely
-    road->check();
-    ASSERT_TRUE(road->sprite != NULL);
-
-    // Add roads to left and right: (4, 5) and (6, 5)
-    delete entities[4][5];
-    entities[4][5] = new DirtRoad(4, 5);
-    delete entities[6][5];
-    entities[6][5] = new DirtRoad(6, 5);
-
-    // Now horizontal connection
-    road->check();
-    ASSERT_TRUE(road->sprite != NULL);
-
-    // Test diagonal edge-sharing Axis 2 connection: (6, 4) [NE] and (4, 6) [SW]
-    delete entities[6][4];
-    entities[6][4] = new DirtRoad(6, 4);
-    delete entities[4][6];
-    entities[4][6] = new DirtRoad(4, 6);
-    road->check();
-    ASSERT_TRUE(road->sprite != NULL);
-
+    // Every combination of the 4 edge neighbours picks its own frame
+    for (int m = 0; m < 16; m++) {
+        clearTestGrid();
+        entities[5][5] = new DirtRoad(5, 5);
+        for (int d = 0; d < 4; d++) {
+            if (!(m & (1 << d))) continue;
+            int x = 5 + ROAD_DIR[d][0], y = 5 + ROAD_DIR[d][1];
+            entities[x][y] = new DirtRoad(x, y);
+        }
+        // Tip-touching neighbours (0, +-1) never connect
+        entities[5][4] = new DirtRoad(5, 4);
+        entities[5][6] = new DirtRoad(5, 6);
+        RoadTile* road = RoadTile::at(5, 5);
+        road->check();
+        ASSERT_EQ(road->mask, m);
+        ASSERT_EQ(road->frame(), m);
+    }
     clearTestGrid();
 }
 
@@ -684,28 +684,27 @@ TEST_CASE(Test_Roads_NeighboursRetileOnChange) {
     Play_Scene scene;
     money = 5000;
 
-    // A lone road is a plain end cap (no rotation)
+    // A lone road is a dead-end pad (mask 0)
     scene.placeTile(10, 10, TOOL_ROAD);
-    DirtRoad* a = dynamic_cast<DirtRoad*>(entities[10][10]);
+    RoadTile* a = RoadTile::at(10, 10);
     ASSERT_TRUE(a != NULL);
-    ASSERT_NEAR(a->sprite->getRotation(), 0.f, 0.01f);
+    ASSERT_EQ(a->frame(), 0);
 
-    // Building a road to its left re-tiles the existing road (left-only cap is rotated 180)
+    // Building a road on its north-west edge re-tiles the existing road
     scene.placeTile(9, 10, TOOL_ROAD);
-    ASSERT_NEAR(a->sprite->getRotation(), 180.f, 0.01f);
+    ASSERT_EQ(a->frame(), 8);
 
-    // update() no longer re-tiles: a road appearing without placeTile is not picked up
+    // update() does not re-tile: a road appearing without placeTile is not picked up
     delete entities[11][10]; entities[11][10] = new DirtRoad(11, 10);
     a->update(0.016f);
-    ASSERT_NEAR(a->sprite->getRotation(), 180.f, 0.01f);
+    ASSERT_EQ(a->frame(), 8);
     delete entities[11][10]; entities[11][10] = NULL;
 
-    // Bulldozing the neighbour re-tiles the survivor back to a plain cap
+    // Bulldozing the neighbour re-tiles the survivor back to a pad
     scene.placeTile(9, 10, TOOL_BULLDOZE);
     ASSERT_TRUE(entities[9][10] == NULL);
-    ASSERT_NEAR(a->sprite->getRotation(), 0.f, 0.01f);
+    ASSERT_EQ(a->frame(), 0);
 
-    clearTestGrid();
 }
 
 // -------------------------------------------------------------
@@ -1553,6 +1552,7 @@ TEST_CASE(Test_Economy_UpgradeNeedsDemand) {
     entities[4][4] = home;
     home->isActive = true;
     home->overallHappiness = 85;
+    connectToOutside(4, 4);
 
     // Full and happy, but no medium-income demand: stays tier 1
     econ.demand[SECTOR_R][WEALTH_LOW] = 50.f;
@@ -2022,9 +2022,1269 @@ TEST_CASE(Test_Farm_FertilityScalesIncome) {
     clearTestGrid();
 }
 
+
+// -------------------------------------------------------------
+// Roads: tiers, bridges, roundabouts, outside connection, traffic
+// -------------------------------------------------------------
+TEST_CASE(Test_Roads_TierUpgradeChargesDifference) {
+    clearTestGrid();
+    ScopedCoutSilence silence;
+    Play_Scene scene;
+    money = 1000;
+
+    scene.placeTile(10, 10, TOOL_ROAD);
+    ASSERT_EQ(money, 1000 - ROAD_COST[0]);
+    RoadTile* r = RoadTile::at(10, 10);
+    ASSERT_EQ(r->dailyUpkeep(), ROAD_UPKEEP[0]);
+
+    std::string reason;
+    ASSERT_FALSE(scene.canPlaceTile(10, 10, TOOL_ROAD, &reason));
+    ASSERT_TRUE(reason.find("Already") != std::string::npos);
+
+    // Avenue over dirt: an in-place upgrade paying only the difference
+    ASSERT_EQ(scene.getPlacementCost(10, 10, TOOL_ROAD_AVENUE), ROAD_COST[2] - ROAD_COST[0]);
+    int before = money;
+    scene.placeTile(10, 10, TOOL_ROAD_AVENUE);
+    ASSERT_EQ(money, before - (ROAD_COST[2] - ROAD_COST[0]));
+    ASSERT_TRUE(RoadTile::at(10, 10) == r);
+    ASSERT_EQ(tileKind(10, 10), "Avenue");
+    ASSERT_EQ(r->dailyUpkeep(), ROAD_UPKEEP[2]);
+    ASSERT_EQ(r->capacity(), ROAD_CAPACITY[2]);
+
+    // Lower or equal tiers are not a downgrade; a drag just skips them
+    ASSERT_FALSE(scene.canPlaceTile(10, 10, TOOL_ROAD_ASPHALT));
+    before = money;
+    ASSERT_EQ(scene.buildRoadPath(roadDragPath({9, 10}, {11, 10}), TOOL_ROAD_ASPHALT), "");
+    ASSERT_EQ(money, before - 2 * ROAD_COST[1]);
+    ASSERT_EQ(tileKind(10, 10), "Avenue");
+    ASSERT_EQ(tileKind(9, 10), "AsphaltRoad");
+
+    // Buildings take access from any tier
+    ASSERT_TRUE(hasAdjacentRoad(9, 11));   // its (1, -1) border tile is the avenue (10, 10)
+    money = 5000;
+    clearTestGrid();
+}
+
+TEST_CASE(Test_Roads_BridgeRules) {
+    clearTestGrid();
+    ScopedCoutSilence silence;
+    Play_Scene scene;
+    money = 5000;
+
+    // A 3-tile river across row y = 10
+    for (int x = 10; x <= 12; x++) world[x][10].terrain = Terrain::Water;
+    std::string reason;
+    ASSERT_FALSE(scene.canPlaceTile(11, 10, TOOL_ROAD, &reason));
+    ASSERT_TRUE(reason.find("bridge") != std::string::npos);
+
+    // Dragging straight across builds land roads and bridge decks
+    ASSERT_EQ(scene.buildRoadPath(roadDragPath({8, 10}, {14, 10}), TOOL_ROAD), "");
+    ASSERT_EQ(money, 5000 - 4 * ROAD_COST[0] - 3 * ROAD_COST[0] * BRIDGE_COST_MULT);
+    for (int x = 10; x <= 12; x++) {
+        ASSERT_EQ(tileKind(x, 10), "Bridge");
+        ASSERT_TRUE(RoadTile::at(x, 10)->isBridge());
+        ASSERT_EQ(RoadTile::at(x, 10)->dailyUpkeep(), ROAD_UPKEEP[0] * BRIDGE_UPKEEP_MULT);
+    }
+    // The bridge joins both banks into one network
+    roadNet.rebuild();
+    ASSERT_EQ(roadNet.componentAt(8, 10), roadNet.componentAt(14, 10));
+    // Bridges only link along their axis: a road beside the deck does not join it
+    entities[12][9] = new DirtRoad(12, 9);   // NE of the deck
+    ASSERT_EQ(RoadTile::linkMask(11, 10) & (1 | 4), 0);
+    ASSERT_EQ(RoadTile::linkMask(12, 9), 0);
+    // ...and no building can use a deck as its road access: the lot at (10, 11)
+    // borders only the decks (11, 10) and (12, 10)
+    ASSERT_FALSE(hasAdjacentRoad(10, 11));
+    delete entities[12][9]; entities[12][9] = NULL;
+
+    // Bulldozing a deck leaves the river
+    scene.placeTile(11, 10, TOOL_BULLDOZE);
+    ASSERT_EQ(tileKind(11, 10), "Water");
+
+    // Too long: 9 tiles of water
+    for (int x = 20; x <= 28; x++) world[x][30].terrain = Terrain::Water;
+    int before = money;
+    ASSERT_TRUE(scene.buildRoadPath(roadDragPath({18, 30}, {30, 30}), TOOL_ROAD).find("too long") != std::string::npos);
+    ASSERT_EQ(tileKind(24, 30), "Water");
+
+    // A bridge must end on land
+    world[40][40].terrain = Terrain::Water;
+    ASSERT_TRUE(scene.buildRoadPath(roadDragPath({38, 40}, {40, 40}), TOOL_ROAD).find("land") != std::string::npos);
+    ASSERT_EQ(tileKind(40, 40), "Water");
+
+    // A bridge cannot turn: the L's corner sits in the water
+    for (int x = 50; x <= 53; x++)
+        for (int y = 48; y <= 51; y++) world[x][y].terrain = Terrain::Water;
+    ASSERT_TRUE(scene.buildRoadPath(roadDragPath({49, 50}, {54, 47}), TOOL_ROAD).find("straight") != std::string::npos);
+    (void)before;
+
+    money = 5000;
+    clearTestGrid();
+}
+
+TEST_CASE(Test_Roads_RoundaboutNeedsJunction) {
+    clearTestGrid();
+    ScopedCoutSilence silence;
+    Play_Scene scene;
+    money = 5000;
+
+    scene.buildRoadPath(roadDragPath({9, 10}, {11, 10}), TOOL_ROAD);
+    std::string reason;
+    ASSERT_FALSE(scene.canPlaceTile(10, 10, TOOL_ROUNDABOUT, &reason));  // straight piece
+    ASSERT_TRUE(reason.find("Junction") != std::string::npos);
+    ASSERT_FALSE(scene.canPlaceTile(20, 20, TOOL_ROUNDABOUT));           // not a road
+
+    // A T-junction (third arm to the NE) takes a roundabout
+    scene.placeTile(11, 9, TOOL_ROAD);
+    RoadTile* r = RoadTile::at(10, 10);
+    float plain = TrafficSystem::effectiveCapacity(r);
+    ASSERT_NEAR(plain, ROAD_CAPACITY[0] * JUNCTION_CAPACITY, 0.01f);
+    ASSERT_TRUE(scene.canPlaceTile(10, 10, TOOL_ROUNDABOUT));
+    int before = money;
+    scene.placeTile(10, 10, TOOL_ROUNDABOUT);
+    ASSERT_EQ(money, before - ROUNDABOUT_COST);
+    ASSERT_TRUE(r->roundabout);
+    ASSERT_EQ(r->dailyUpkeep(), ROAD_UPKEEP[0] + UPKEEP_ROUNDABOUT);
+    ASSERT_NEAR(TrafficSystem::effectiveCapacity(r), ROAD_CAPACITY[0] * ROUNDABOUT_CAPACITY, 0.01f);
+    ASSERT_FALSE(scene.canPlaceTile(10, 10, TOOL_ROUNDABOUT));           // already one
+
+    money = 5000;
+    clearTestGrid();
+}
+
+TEST_CASE(Test_Roads_OutsideConnection) {
+    clearTestGrid();
+    ScopedCoutSilence silence;
+
+    for (int x = 0; x <= 6; x++) entities[x][5] = new DirtRoad(x, 5);
+    entities[20][20] = new DirtRoad(20, 20);
+    roadNet.rebuild();
+    ASSERT_TRUE(roadNet.tileOutside(3, 5));
+    ASSERT_FALSE(roadNet.tileOutside(20, 20));
+    ASSERT_TRUE(roadNet.componentAt(0, 5) != roadNet.componentAt(20, 20));
+
+    // A lot whose west border tile (-1, 0) is the road at (6, 5)
+    ASSERT_TRUE(roadNet.buildingOutside(7, 5));
+    ASSERT_FALSE(roadNet.buildingOutside(21, 20));
+
+    // Cutting the road at the edge isolates the network
+    delete entities[0][5]; entities[0][5] = NULL;
+    roadNet.rebuild();
+    ASSERT_FALSE(roadNet.buildingOutside(7, 5));
+    clearTestGrid();
+}
+
+TEST_CASE(Test_Economy_SoftPenaltyWithoutOutside) {
+    clearTestGrid();
+    ScopedCoutSilence silence;
+    EconomySystem econ;
+    econ.happiness = 90;
+
+    // Road access, but the road is an island: slow growth to half full, no upgrade
+    ResidentalZone* home = new ResidentalZone(10, 10, 1, 1);
+    entities[10][10] = home;
+    entities[9][10] = new DirtRoad(9, 10);
+    home->checkValid();
+    home->overallHappiness = 90;
+    ASSERT_TRUE(home->isActive);
+    roadNet.rebuild();
+
+    econ.demand[SECTOR_R][WEALTH_LOW] = 60.f;
+    econ.demand[SECTOR_R][WEALTH_MID] = 80.f;
+    for (int d = 0; d < 60; d++) { econ.dayCounter++; econ.updateOccupancy(); }
+    ASSERT_EQ(home->population, home->capacity / 2);
+    ASSERT_EQ(home->tier, 1);
+
+    // Connected to the map edge it fills up
+    connectToOutside(10, 10);
+    econ.demand[SECTOR_R][WEALTH_MID] = 0.f;
+    for (int d = 0; d < 30; d++) { econ.dayCounter++; econ.updateOccupancy(); }
+    ASSERT_EQ(home->population, home->capacity);
+    clearTestGrid();
+}
+
+TEST_CASE(Test_Traffic_RoutesCommutersToJobs) {
+    clearTestGrid();
+    ScopedCoutSilence silence;
+
+    // One road row; a home and a shop on its south side
+    for (int x = 0; x <= 20; x++) entities[x][10] = new DirtRoad(x, 10);
+    for (int x = 0; x <= 20; x++) RoadTile::at(x, 10)->check();
+    ResidentalZone* home = new ResidentalZone(5, 11, 1, 1);
+    entities[5][11] = home;
+    CommericalZone* shop = new CommericalZone(15, 11, 1, 1);
+    entities[15][11] = shop;
+    home->checkValid();
+    shop->checkValid();
+    ASSERT_TRUE(home->isActive && shop->isActive);
+    home->population = 20;
+    shop->population = shop->capacity;   // at least 15 jobs
+
+    traffic.update();
+    int commuters = 12;                  // 60% of 20
+    ASSERT_EQ(traffic.totalTrips, commuters);
+    ASSERT_EQ(traffic.outsideTrips, 0);
+    // Route: home's NE border road (7, 10) to the shop's (16, 10)
+    ASSERT_NEAR(traffic.load[7][10], 12.f, 0.01f);
+    ASSERT_NEAR(traffic.load[12][10], 12.f, 0.01f);
+    ASSERT_NEAR(traffic.load[16][10], 12.f, 0.01f);
+    ASSERT_NEAR(traffic.load[3][10], 0.f, 0.01f);
+    ASSERT_NEAR(traffic.load[18][10], 0.f, 0.01f);
+    ASSERT_NEAR(traffic.congestion[12][10], 12.f / ROAD_CAPACITY[0], 0.001f);
+
+    // Higher tiers carry more: the same load is a smaller share of an avenue
+    RoadTile::at(12, 10)->setTier(2);
+    traffic.update();
+    ASSERT_NEAR(traffic.congestion[12][10], 12.f / ROAD_CAPACITY[2], 0.001f);
+
+    // No jobs left: commuters drive out of town through the map edge
+    shop->population = 0;
+    traffic.update();
+    ASSERT_EQ(traffic.outsideTrips, commuters);
+    ASSERT_NEAR(traffic.load[0][10], 12.f, 0.01f);
+    clearTestGrid();
+}
+
+TEST_CASE(Test_Traffic_HappinessPenaltyOnlyWhenJammed) {
+    clearTestGrid();
+    ScopedCoutSilence silence;
+    ASSERT_EQ(TrafficSystem::happinessPenalty(0.9f), 0);
+    ASSERT_EQ(TrafficSystem::happinessPenalty(1.5f), 10);
+    ASSERT_EQ(TrafficSystem::happinessPenalty(4.f), 20);
+    ASSERT_EQ(TrafficSystem::scoreFor(0.3f), 100);
+    ASSERT_EQ(TrafficSystem::scoreFor(1.5f), 0);
+
+    ResidentalZone* home = new ResidentalZone(5, 11, 1, 1);
+    entities[5][11] = home;
+    home->isActive = true;
+    HappinessSystem hs;
+    hs.updateSimulation();
+    int base = home->overallHappiness;
+    traffic.homeCongestion[5][11] = 0.95f;   // busy but under capacity: no penalty
+    hs.updateSimulation();
+    ASSERT_EQ(home->overallHappiness, base);
+    traffic.homeCongestion[5][11] = 2.f;     // twice capacity: -20
+    hs.updateSimulation();
+    ASSERT_EQ(home->overallHappiness, std::max(5, base - 20));
+    clearTestGrid();
+}
+
+TEST_CASE(Test_Economy_RoadUpkeepByTier) {
+    clearTestGrid();
+    ScopedCoutSilence silence;
+    entities[2][2] = new DirtRoad(2, 2);
+    entities[3][2] = new AsphaltRoad(3, 2);
+    entities[4][2] = new Avenue(4, 2);
+    world[5][2].terrain = Terrain::Water;
+    entities[5][2] = new RoadTile(5, 2, 0, 1);
+    EconomySystem econ;
+    DayReport r = econ.settle();
+    ASSERT_EQ(r.roadTiles, 4);
+    ASSERT_EQ(r.upkeepRoads, ROAD_UPKEEP[0] + ROAD_UPKEEP[1] + ROAD_UPKEEP[2] + ROAD_UPKEEP[0] * BRIDGE_UPKEEP_MULT);
+    money = 5000;
+    clearTestGrid();
+}
+
+TEST_CASE(Test_Cars_StayOnRoads) {
+    clearTestGrid();
+    ScopedCoutSilence silence;
+    for (int x = 0; x <= 20; x++) entities[x][10] = new DirtRoad(x, 10);
+    for (int x = 0; x <= 20; x++) RoadTile::at(x, 10)->check();
+    roadNet.rebuild();
+    for (int x = 0; x <= 20; x++) traffic.load[x][10] = 30.f;
+    traffic.totalTrips = 60;
+
+    CarRenderer cars;
+    ASSERT_EQ(CarRenderer::targetCount(60, 21), 10);
+    for (int f = 0; f < 120; f++) cars.update(0.05f);
+    ASSERT_TRUE(!cars.cars.empty());
+    ASSERT_TRUE(static_cast<int>(cars.cars.size()) <= 10);
+    for (const auto& c : cars.cars) ASSERT_TRUE(RoadTile::at(c.x, c.y) != NULL);
+
+    // Paused: nothing moves
+    auto snapshot = cars.cars;
+    cars.update(0.f);
+    ASSERT_NEAR(cars.cars[0].t, snapshot[0].t, 0.0001f);
+
+    // Roads gone: cars disappear
+    for (int x = 0; x <= 20; x++) { delete entities[x][10]; entities[x][10] = NULL; }
+    cars.update(0.05f);
+    ASSERT_TRUE(cars.cars.empty());
+    clearTestGrid();
+}
+
 // -------------------------------------------------------------
 // Main Test Runner Entrypoint
 // -------------------------------------------------------------
+// -------------------------------------------------------------
+// Power & water
+// -------------------------------------------------------------
+// Layout used below: a dirt road along row 10, buildings rooted on row 11
+// (their north-east border tiles (x+1, 10) / (x+2, 10) are the road).
+static void utilRoadRow(int y, int x0, int x1) {
+    for (int x = x0; x <= x1; x++) {
+        delete entities[x][y];
+        entities[x][y] = new DirtRoad(x, y);
+    }
+    roadNet.rebuild();
+}
+static ResidentalZone* utilHome(int x, int y, int pop) {
+    ResidentalZone* h = new ResidentalZone(x, y, 1, 1);
+    delete entities[x][y];
+    entities[x][y] = h;
+    h->checkValid();
+    h->population = pop;
+    return h;
+}
+static UtilityZone* utilBuilding(int x, int y, int kind) {
+    UtilityZone* u = new UtilityZone(x, y, kind);
+    delete entities[x][y];
+    entities[x][y] = u;
+    u->checkValid();
+    return u;
+}
+static void utilGroundwater(int value) {
+    for (int i = 0; i < tileMapW; i++)
+        for (int j = 0; j < tileMapH; j++) world[i][j].groundwater = world[i][j].groundwaterMax = static_cast<uint8_t>(value);
+}
+
+TEST_CASE(Test_Utilities_GraceForSmallTowns) {
+    clearTestGrid();
+    ScopedCoutSilence silence;
+    utilRoadRow(10, 0, 30);
+    ResidentalZone* h = utilHome(4, 11, 20);
+    utilities.refreshService();
+    ASSERT_TRUE(utilities.grace);
+    ASSERT_TRUE(utilities.served(4, 11));      // small town: nobody needs utilities yet
+    ASSERT_EQ(utilities.unpowered, 1);         // ...but the shortfall is still counted
+
+    h->population = UTILITY_GRACE_POP;
+    utilities.refreshService();
+    ASSERT_FALSE(utilities.grace);
+    ASSERT_FALSE(utilities.powered(4, 11));
+    ASSERT_FALSE(utilities.watered(4, 11));
+    clearTestGrid();
+}
+
+TEST_CASE(Test_Utilities_PlantNeedsTransformer) {
+    clearTestGrid();
+    ScopedCoutSilence silence;
+    utilRoadRow(10, 0, 30);
+    utilHome(4, 11, 200);
+    utilBuilding(8, 11, UTIL_COAL);
+    utilities.refreshService();
+    ASSERT_FALSE(utilities.powered(4, 11));    // 400 MW on the grid, but nothing steps it down
+    ASSERT_NEAR(utilities.powerGrids[0].powerSupply, 400.f, 0.01f);
+
+    utilBuilding(12, 11, UTIL_TRANSFORMER);
+    utilities.refreshService();
+    ASSERT_TRUE(utilities.powered(4, 11));
+    clearTestGrid();
+}
+
+TEST_CASE(Test_Utilities_TransformerCapacityNoRange) {
+    clearTestGrid();
+    ScopedCoutSilence silence;
+    utilRoadRow(10, 0, 60);
+    utilBuilding(50, 11, UTIL_COAL);
+    utilBuilding(54, 11, UTIL_TRANSFORMER);
+    utilHome(2, 11, 200);                      // 52 tiles from the transformer: distance does not matter
+    utilities.refreshService();
+    ASSERT_TRUE(utilities.powered(2, 11));
+
+    // Five big homes: each needs 160 x 0.25 x (1 + 800/3000) = 50.7 MW, so the
+    // 150 MW transformer carries two of them (scan order); the coal plant has plenty left
+    delete entities[2][11]; entities[2][11] = NULL;
+    for (int x : {2, 6, 10, 14, 18}) utilHome(x, 11, 160);
+    utilities.refreshService();
+    int powered = 0;
+    for (int x : {2, 6, 10, 14, 18}) powered += utilities.powered(x, 11) ? 1 : 0;
+    ASSERT_EQ(powered, 2);
+    ASSERT_TRUE(utilities.powered(2, 11));
+    ASSERT_FALSE(utilities.powered(18, 11));
+    ASSERT_NEAR(utilities.powerSupply, 150.f, 0.01f);   // deliverable = min(plants, transformers)
+
+    utilBuilding(40, 11, UTIL_TRANSFORMER);    // a second one anywhere on the grid adds 150 MW
+    utilities.refreshService();
+    powered = 0;
+    for (int x : {2, 6, 10, 14, 18}) powered += utilities.powered(x, 11) ? 1 : 0;
+    ASSERT_EQ(powered, 5);
+    clearTestGrid();
+}
+
+TEST_CASE(Test_Utilities_GridsFollowRoads) {
+    clearTestGrid();
+    ScopedCoutSilence silence;
+    // Two road segments on row 11 with a gap at x = 10..11
+    for (int x = 0; x <= 9; x++) entities[x][11] = new DirtRoad(x, 11);
+    for (int x = 12; x <= 30; x++) entities[x][11] = new DirtRoad(x, 11);
+    roadNet.rebuild();
+    ASSERT_TRUE(roadNet.componentAt(5, 11) != roadNet.componentAt(20, 11));
+
+    utilBuilding(3, 12, UTIL_WIND);            // west network
+    utilBuilding(6, 12, UTIL_TRANSFORMER);
+    utilHome(14, 12, 200);                     // east network (8 tiles from the transformer): no power
+    utilities.refreshService();
+    ASSERT_EQ(static_cast<int>(utilities.powerGrids.size()), 2);
+    ASSERT_FALSE(utilities.powered(14, 12));
+
+    // A building in the gap borders both ends ((-1, 0) and (2, 0)) and joins the grids
+    utilBuilding(10, 11, UTIL_TOWER);
+    utilities.refreshService();
+    ASSERT_EQ(static_cast<int>(utilities.powerGrids.size()), 1);
+    ASSERT_TRUE(utilities.powered(14, 12));
+    clearTestGrid();
+}
+
+TEST_CASE(Test_Utilities_OutputBySeasonAndLand) {
+    clearTestGrid();
+    ScopedCoutSilence silence;
+    UtilityZone* solar = utilBuilding(10, 11, UTIL_SOLAR);
+    gameClock.setDate(1, 7, 1);
+    ASSERT_TRUE(gameClock.getSeason() == Season::Summer);
+    ASSERT_NEAR(UtilitySystem::outputOf(solar), 144.f, 0.01f);
+    gameClock.setDate(1, 1, 1);
+    ASSERT_TRUE(gameClock.getSeason() == Season::Winter);
+    ASSERT_NEAR(UtilitySystem::outputOf(solar), 60.f, 0.01f);
+
+    UtilityZone* coal = utilBuilding(20, 11, UTIL_COAL);
+    ASSERT_NEAR(UtilitySystem::outputOf(coal), 400.f, 0.01f);
+    world[21][11].deposit = Deposit::Coal;     // any footprint tile on coal
+    ASSERT_NEAR(UtilitySystem::outputOf(coal), 500.f, 0.01f);
+
+    // Pumps and wells scale with the reserve around them
+    utilGroundwater(50);
+    UtilityZone* pump = utilBuilding(30, 30, UTIL_PUMP);
+    UtilityZone* well = utilBuilding(40, 30, UTIL_WELL);
+    ASSERT_NEAR(UtilitySystem::outputOf(pump), 200.f, 0.01f);
+    ASSERT_NEAR(UtilitySystem::outputOf(well), 40.f, 0.01f);
+    utilGroundwater(100);
+    ASSERT_NEAR(UtilitySystem::outputOf(pump), 400.f, 0.01f);
+    clearTestGrid();
+}
+
+TEST_CASE(Test_Utilities_PumpingDrainsAndRecharges) {
+    clearTestGrid();
+    ScopedCoutSilence silence;
+    utilGroundwater(60);
+    utilRoadRow(10, 0, 40);
+    utilBuilding(20, 11, UTIL_PUMP);
+    for (int x : {4, 8, 12}) utilHome(x, 11, 400);   // ~112 water each, more than the pump gives
+    gameClock.setDate(1, 7, 1);                        // summer: slow recharge
+
+    const float before = UtilityZone::groundwaterAround(20, 11, PUMP_RADIUS);
+    for (int d = 0; d < 30; d++) utilities.runDay();
+    const float drained = UtilityZone::groundwaterAround(20, 11, PUMP_RADIUS);
+    ASSERT_TRUE(drained < before - 0.02f);
+    ASSERT_EQ(static_cast<int>(world[2][2].groundwater), 60);   // far away: untouched
+
+    // Nobody drawing water: the reserve recovers towards its natural level
+    for (int x : {4, 8, 12}) { delete entities[x][11]; entities[x][11] = NULL; }
+    gameClock.setDate(1, 4, 1);                        // spring: fast recharge
+    for (int d = 0; d < 30; d++) utilities.runDay();
+    const float recovered = UtilityZone::groundwaterAround(20, 11, PUMP_RADIUS);
+    ASSERT_TRUE(recovered > drained + 0.02f);
+    ASSERT_TRUE(recovered <= 0.6f + 0.001f);
+    clearTestGrid();
+}
+
+TEST_CASE(Test_Utilities_TreatmentAndWells) {
+    clearTestGrid();
+    ScopedCoutSilence silence;
+    utilGroundwater(50);
+    utilRoadRow(10, 0, 40);
+    utilHome(4, 11, 200);                      // ~42.7 water
+    utilBuilding(20, 11, UTIL_PUMP);           // 200 raw
+    utilities.refreshService();
+    ASSERT_TRUE(utilities.watered(4, 11));
+    ASSERT_TRUE(utilities.untreated(4, 11));   // raw water straight to the tap
+
+    utilBuilding(24, 11, UTIL_TREATMENT);
+    utilities.refreshService();
+    ASSERT_TRUE(utilities.watered(4, 11));
+    ASSERT_FALSE(utilities.untreated(4, 11));
+
+    // A well alone gives clean water
+    delete entities[20][11]; entities[20][11] = NULL;
+    delete entities[24][11]; entities[24][11] = NULL;
+    utilGroundwater(100);
+    utilBuilding(28, 11, UTIL_WELL);           // 80 clean
+    utilities.refreshService();
+    ASSERT_TRUE(utilities.watered(4, 11));
+    ASSERT_FALSE(utilities.untreated(4, 11));
+    clearTestGrid();
+}
+
+TEST_CASE(Test_Utilities_TowerCoversShortfall) {
+    clearTestGrid();
+    ScopedCoutSilence silence;
+    utilGroundwater(100);
+    utilRoadRow(10, 0, 40);
+    utilHome(4, 11, 200);                      // ~42.7 a day
+    utilBuilding(20, 11, UTIL_WELL);           // 80 a day
+    UtilityZone* tower = utilBuilding(24, 11, UTIL_TOWER);
+    for (int d = 0; d < 12; d++) utilities.runDay();
+    ASSERT_NEAR(tower->stored, 300.f, 0.5f);   // the spare water filled it
+
+    delete entities[20][11]; entities[20][11] = NULL;   // the well is gone
+    utilities.runDay();
+    ASSERT_TRUE(utilities.watered(4, 11));     // the tower covers the day
+    ASSERT_TRUE(tower->stored < 300.f - 40.f);
+    clearTestGrid();
+}
+
+TEST_CASE(Test_Utilities_DemandScalesWithTierAndCity) {
+    clearTestGrid();
+    ScopedCoutSilence silence;
+    ResidentalZone* low = utilHome(4, 11, 100);
+    ResidentalZone* mid = new ResidentalZone(8, 11, 2, 1);
+    entities[8][11] = mid;
+    mid->population = 100;
+    float a = UtilitySystem::demandOf(low, false, 0), b = UtilitySystem::demandOf(mid, false, 0);
+    ASSERT_NEAR(a, 25.f, 0.01f);
+    ASSERT_NEAR(b / a, UTIL_TIER_FACTOR[1], 0.001f);
+    ASSERT_NEAR(UtilitySystem::demandOf(low, false, 3000) / a, 2.f, 0.001f);   // a 3,000 city uses twice as much per head
+    ASSERT_NEAR(UtilitySystem::demandOf(low, true, 0), 20.f, 0.01f);
+    low->population = 0;                                                         // empty lots still need 10%
+    ASSERT_NEAR(UtilitySystem::demandOf(low, false, 0), 0.1f * low->capacity * 0.25f, 0.01f);
+    clearTestGrid();
+}
+
+TEST_CASE(Test_Utilities_UnservedBuildingsShrink) {
+    clearTestGrid();
+    ScopedCoutSilence silence;
+    utilRoadRow(10, 0, 40);
+    ResidentalZone* h = utilHome(4, 11, 0);
+    h->population = h->capacity;
+    utilHome(20, 11, 200);
+    utilities.refreshService();
+    ASSERT_FALSE(utilities.served(4, 11));
+
+    EconomySystem econ;
+    econ.happiness = 90;
+    h->overallHappiness = 90;
+    econ.demand[SECTOR_R][WEALTH_LOW] = 80.f;
+    econ.demand[SECTOR_R][WEALTH_MID] = 80.f;
+    for (int d = 0; d < 60; d++) { econ.dayCounter++; econ.updateOccupancy(); }
+    ASSERT_EQ(h->population, h->capacity / 4);  // never abandoned outright
+    ASSERT_EQ(h->tier, 1);                      // and never upgraded
+    ASSERT_EQ(econ.limitingFactor(SECTOR_R, WEALTH_LOW), std::string("Strong demand"));
+    econ.demand[SECTOR_R][WEALTH_LOW] = 0.f;
+    ASSERT_EQ(econ.limitingFactor(SECTOR_R, WEALTH_LOW), std::string("No power"));
+    clearTestGrid();
+}
+
+TEST_CASE(Test_Utilities_HappinessPenalty) {
+    clearTestGrid();
+    ScopedCoutSilence silence;
+    utilGroundwater(100);
+    utilRoadRow(10, 0, 40);
+    ResidentalZone* h = utilHome(4, 11, 200);
+    HappinessSystem hs;
+    utilities.refreshService();
+    hs.updateSimulation();
+    const int dark = h->overallHappiness;
+    ASSERT_EQ(h->happinessIndex[7], 0);
+
+    utilBuilding(12, 11, UTIL_WIND);
+    utilBuilding(8, 11, UTIL_TRANSFORMER);
+    utilBuilding(16, 11, UTIL_WELL);
+    utilities.refreshService();
+    ASSERT_TRUE(utilities.served(4, 11));
+    hs.updateSimulation();
+    ASSERT_EQ(h->happinessIndex[7], 100);
+    ASSERT_EQ(h->overallHappiness - dark, 24);
+
+    // Untreated water costs health
+    const int healthy = h->happinessIndex[4];
+    delete entities[16][11]; entities[16][11] = NULL;
+    utilBuilding(16, 11, UTIL_PUMP);
+    utilities.refreshService();
+    ASSERT_TRUE(utilities.untreated(4, 11));
+    hs.updateSimulation();
+    ASSERT_EQ(healthy - h->happinessIndex[4], 20);
+    clearTestGrid();
+}
+
+TEST_CASE(Test_Utilities_UpkeepAndToolbar) {
+    clearTestGrid();
+    ScopedCoutSilence silence;
+    utilRoadRow(10, 0, 20);
+    utilBuilding(4, 11, UTIL_WIND);
+    utilBuilding(8, 11, UTIL_TREATMENT);
+    EconomySystem econ;
+    DayReport rep = econ.settle();
+    ASSERT_EQ(rep.upkeepUtilities, UTIL_UPKEEP[UTIL_WIND] + UTIL_UPKEEP[UTIL_TREATMENT]);
+
+    ASSERT_EQ(utilityToolKind(TOOL_SEWAGE_OUTFLOW), static_cast<int>(UTIL_SEWAGE_OUTFLOW));
+    ASSERT_EQ(utilityToolKind(TOOL_SEWAGE_PLANT), static_cast<int>(UTIL_SEWAGE_PLANT));
+    for (int k = 0; k <= UTIL_TOWER; k++) {
+        BuildTool t = static_cast<BuildTool>(TOOL_POWER_COAL + k);
+        ASSERT_TRUE(isUtilityTool(t));
+        ASSERT_EQ(utilityToolKind(t), k);
+        ASSERT_EQ(toolCost(t), UTIL_COST[k]);
+        ASSERT_EQ(toolThumbnailKey(t), std::string(utilityTextureKey(k)));
+    }
+    ASSERT_FALSE(isUtilityTool(TOOL_BULLDOZE));
+
+    Toolbar tb;
+    tb.init(1600.f, 900.f);
+    tb.setActiveTool(TOOL_WATER_PUMP);
+    ASSERT_TRUE(tb.getActiveCategory() == ToolbarCategory::UTILITIES);
+    ASSERT_TRUE(tb.tabBounds(ToolbarCategory::UTILITIES).height > 0.f);
+
+    // Placing through the scene builds a UtilityZone with its sub tiles
+    Play_Scene scene;
+    money = 100000;
+    ASSERT_TRUE(scene.canPlaceTile(14, 11, TOOL_POWER_SOLAR));
+    scene.placeTile(14, 11, TOOL_POWER_SOLAR);
+    UtilityZone* u = dynamic_cast<UtilityZone*>(entities[14][11]);
+    ASSERT_TRUE(u != NULL);
+    ASSERT_EQ(u->kind, UTIL_SOLAR);
+    ASSERT_TRUE(u->isActive);
+    ASSERT_EQ(tileKind(15, 11), std::string("UtilityZone"));
+    ASSERT_EQ(money, 100000 - UTIL_COST[UTIL_SOLAR]);
+    clearTestGrid();
+}
+
+TEST_CASE(Test_Utilities_LinesConnectOffRoadBuildings) {
+    clearTestGrid();
+    ScopedCoutSilence silence;
+    utilGroundwater(100);
+    utilRoadRow(10, 0, 30);
+    utilHome(4, 11, 200);
+    utilBuilding(8, 11, UTIL_TRANSFORMER);
+    UtilityZone* wind = utilBuilding(20, 4, UTIL_WIND);       // no road anywhere near
+    ASSERT_TRUE(wind->isActive);                              // utilities need no road
+    utilities.refreshService();
+    ASSERT_FALSE(wind->linked);
+    ASSERT_FALSE(utilities.powered(4, 11));
+
+    // Power line from the wind farm's south-west border (19, 6) to the road at (15, 10)
+    const int path[4][2] = {{19, 6}, {18, 7}, {17, 8}, {16, 9}};
+    for (const auto& p : path) world[p[0]][p[1]].lines = LINE_POWER;
+    utilities.refreshService();
+    ASSERT_TRUE(wind->linked);
+    ASSERT_TRUE(utilities.powered(4, 11));
+
+    // A pipe carries water, not power
+    for (const auto& p : path) world[p[0]][p[1]].lines = LINE_PIPE;
+    utilities.refreshService();
+    ASSERT_FALSE(utilities.powered(4, 11));
+
+    // ...and links an off-road well to the homes
+    UtilityZone* well = utilBuilding(26, 4, UTIL_WELL);
+    utilities.refreshService();
+    ASSERT_FALSE(utilities.watered(4, 11));
+    const int pipe[4][2] = {{25, 6}, {24, 7}, {23, 8}, {22, 9}};
+    for (const auto& p : pipe) world[p[0]][p[1]].lines = LINE_PIPE;
+    utilities.refreshService();
+    ASSERT_TRUE(well->linked);
+    ASSERT_TRUE(utilities.watered(4, 11));
+    clearTestGrid();
+}
+
+TEST_CASE(Test_Utilities_LinePlacementRules) {
+    clearTestGrid();
+    ScopedCoutSilence silence;
+    Play_Scene scene;
+    money = 100000;
+    utilRoadRow(10, 0, 30);
+
+    ASSERT_TRUE(scene.canPlaceTile(5, 5, TOOL_POWER_LINE));
+    scene.placeTile(5, 5, TOOL_POWER_LINE);
+    ASSERT_TRUE(hasLine(5, 5, LINE_POWER));
+    ASSERT_EQ(money, 100000 - LINE_COST_POWER);
+    ASSERT_FALSE(scene.canPlaceTile(5, 5, TOOL_POWER_LINE));    // already there
+    ASSERT_FALSE(scene.canPlaceTile(3, 10, TOOL_POWER_LINE));   // roads carry both already
+    world[7][7].terrain = Terrain::Water;
+    ASSERT_FALSE(scene.canPlaceTile(7, 7, TOOL_WATER_PIPE));
+    std::string reason;
+    ASSERT_FALSE(scene.canPlaceTile(5, 5, TOOL_SCHOOL, &reason)); // pylon in the footprint
+    ASSERT_EQ(reason, std::string("Power Line in the Way - Bulldoze First"));
+
+    // A pipe shares the tile; bulldozing takes the power line first, then the pipe
+    scene.placeTile(5, 5, TOOL_WATER_PIPE);
+    ASSERT_EQ(static_cast<int>(world[5][5].lines), LINE_POWER | LINE_PIPE);
+    scene.placeTile(5, 5, TOOL_BULLDOZE);
+    ASSERT_EQ(static_cast<int>(world[5][5].lines), static_cast<int>(LINE_PIPE));
+    scene.placeTile(5, 5, TOOL_BULLDOZE);
+    ASSERT_EQ(static_cast<int>(world[5][5].lines), 0);
+    ASSERT_FALSE(scene.canPlaceTile(5, 5, TOOL_BULLDOZE));
+
+    // Pipes run under buildings, power lines do not
+    scene.placeTile(12, 11, TOOL_RES_COTTAGES);
+    ASSERT_TRUE(scene.canPlaceTile(12, 11, TOOL_WATER_PIPE));
+    ASSERT_FALSE(scene.canPlaceTile(12, 11, TOOL_POWER_LINE));
+
+    // Utility buildings need no road
+    ASSERT_TRUE(scene.canPlaceTile(30, 30, TOOL_POWER_WIND));
+    ASSERT_FALSE(scene.canPlaceTile(30, 30, TOOL_SCHOOL));
+
+    // Upkeep: $1 a day per 10 line tiles
+    clearTestGrid();
+    for (int x = 0; x < 20; x++) world[x][20].lines = LINE_PIPE;
+    EconomySystem econ;
+    ASSERT_EQ(econ.settle().upkeepUtilities, 20 / LINE_TILES_PER_UPKEEP);
+    clearTestGrid();
+}
+
+TEST_CASE(Test_Utilities_FlyoutWrapsOnSmallWindows) {
+    Toolbar tb;
+    tb.init(1024.f, 680.f);
+    tb.openFlyout(ToolbarCategory::UTILITIES);
+    sf::FloatRect fb = tb.flyoutBounds();
+    ASSERT_TRUE(fb.top + fb.height <= 680.f);
+    ASSERT_TRUE(fb.width > 400.f);                               // two columns
+    sf::FloatRect first = tb.cardBounds(0), last = tb.cardBounds(9);
+    ASSERT_TRUE(last.left > first.left);
+    ASSERT_TRUE(tb.cardBoundsFor(TOOL_WATER_PIPE) == last);
+    tb.init(1600.f, 1000.f);                                     // tall window: one column
+    ASSERT_NEAR(tb.flyoutBounds().width, 280.f, 0.01f);
+}
+
+// -------------------------------------------------------------
+// Zones
+// -------------------------------------------------------------
+// Road along row 10 from the map edge; lots rooted on row 11 border it.
+static void zoneRect(Play_Scene& scene, BuildTool tool, int x0, int y0, int x1, int y1) {
+    for (int x = x0; x <= x1; x++)
+        for (int y = y0; y <= y1; y++)
+            if (scene.canPlaceTile(x, y, tool)) scene.placeTile(x, y, tool);
+}
+
+TEST_CASE(Test_Zones_PaintAndDezone) {
+    clearTestGrid();
+    ScopedCoutSilence silence;
+    Play_Scene scene;
+    money = 10000;
+    utilRoadRow(10, 0, 30);
+    world[6][12].terrain = Terrain::Water;
+
+    zoneRect(scene, TOOL_ZONE_R_MED, 2, 10, 6, 12);   // row 10 is road, (6, 12) water: both skipped
+    ASSERT_EQ(static_cast<int>(world[3][11].zone), static_cast<int>(makeZone(SECTOR_R, 1)));
+    ASSERT_EQ(static_cast<int>(world[3][10].zone), 0);
+    ASSERT_EQ(static_cast<int>(world[6][12].zone), 0);
+    ASSERT_EQ(money, 10000 - 9 * ZONE_COST_PER_TILE);
+    ASSERT_EQ(zoneMaxTier(world[3][11].zone), 2);
+    std::string reason;
+    ASSERT_FALSE(scene.canPlaceTile(3, 11, TOOL_ZONE_R_MED, &reason));
+    ASSERT_EQ(reason, std::string("Already Zoned"));
+    ASSERT_TRUE(scene.canPlaceTile(3, 11, TOOL_ZONE_C_LOW));   // rezoning to another type is allowed
+
+    // Dezone is free; bulldozing bare zoned ground also clears it
+    scene.placeTile(3, 11, TOOL_DEZONE);
+    ASSERT_EQ(static_cast<int>(world[3][11].zone), 0);
+    ASSERT_TRUE(scene.canPlaceTile(4, 11, TOOL_BULLDOZE));
+    scene.placeTile(4, 11, TOOL_BULLDOZE);
+    ASSERT_EQ(static_cast<int>(world[4][11].zone), 0);
+    ASSERT_EQ(zoneToolValue(TOOL_ZONE_C_HIGH), makeZone(SECTOR_C, 2));
+    clearTestGrid();
+}
+
+TEST_CASE(Test_Zones_BuildingsGrowWithDemand) {
+    clearTestGrid();
+    ScopedCoutSilence silence;
+    Play_Scene scene;
+    money = 10000;
+    utilRoadRow(10, 0, 30);
+    zoneRect(scene, TOOL_ZONE_R_LOW, 1, 11, 14, 12);
+
+    scene.economy.demand[SECTOR_R][WEALTH_LOW] = 0.f;
+    ASSERT_EQ(scene.growZones(), 0);                          // no demand, no growth
+
+    scene.economy.demand[SECTOR_R][WEALTH_LOW] = 60.f;        // 1 + 60 / 30 = 3 a day
+    ASSERT_EQ(scene.growZones(), 3);
+    int grown = 0;
+    for (int x = 0; x < tileMapW; x++)
+        for (int y = 0; y < tileMapH; y++) {
+            ResidentalZone* r = dynamic_cast<ResidentalZone*>(entities[x][y]);
+            if (r == NULL || r->isSubTile) continue;
+            grown++;
+            ASSERT_TRUE(r->zoned);
+            ASSERT_FALSE(r->fixedTier);
+            ASSERT_EQ(r->maxTier, 1);
+            ASSERT_EQ(r->tier, 1);
+            ASSERT_TRUE(r->isActive);
+        }
+    ASSERT_EQ(grown, 3);
+    ASSERT_EQ(money, 10000 - 28 * ZONE_COST_PER_TILE);       // growing is free
+    clearTestGrid();
+}
+
+TEST_CASE(Test_Zones_NoGrowthOnBadLots) {
+    clearTestGrid();
+    ScopedCoutSilence silence;
+    Play_Scene scene;
+    money = 10000;
+    utilRoadRow(10, 0, 30);
+    scene.economy.demand[SECTOR_R][WEALTH_LOW] = 90.f;
+
+    zoneRect(scene, TOOL_ZONE_R_LOW, 20, 30, 30, 40);         // nowhere near a road
+    world[5][11].zone = makeZone(SECTOR_R, 0);                // only part of a footprint
+    world[6][11].zone = makeZone(SECTOR_R, 0);
+    world[5][12].zone = makeZone(SECTOR_R, 0);
+    for (int x : {12, 13}) world[x][11].zone = makeZone(SECTOR_R, 0);   // two zone types in one lot
+    for (int x : {11, 12}) world[x][12].zone = makeZone(SECTOR_R, 1);
+    for (int x : {18, 19}) { world[x][11].zone = world[x - 1][12].zone = world[x][12].zone = makeZone(SECTOR_R, 0); }
+    world[17][12].zone = makeZone(SECTOR_R, 0);
+    world[18][11].lines = LINE_POWER;                         // a pylon in the way
+    ASSERT_EQ(scene.growZones(), 0);
+    clearTestGrid();
+}
+
+TEST_CASE(Test_Zones_DensityCapsUpgrades) {
+    clearTestGrid();
+    ScopedCoutSilence silence;
+    utilRoadRow(10, 0, 30);
+    EconomySystem econ;
+    econ.happiness = 90;
+    for (int w = 0; w < WEALTH_COUNT; w++) econ.demand[SECTOR_R][w] = 80.f;
+
+    ResidentalZone* low = utilHome(4, 11, 0);
+    low->zoned = true; low->maxTier = 1;
+    ResidentalZone* high = utilHome(12, 11, 0);
+    high->zoned = true; high->maxTier = 3;
+    for (ResidentalZone* h : {low, high}) { h->population = h->capacity; h->overallHappiness = 90; }
+    for (int d = 0; d < 150; d++) {
+        econ.dayCounter++;
+        econ.updateOccupancy();
+        low->overallHappiness = high->overallHappiness = 90;
+    }
+    ASSERT_EQ(low->tier, 1);
+    ASSERT_TRUE(high->tier >= 2);
+    clearTestGrid();
+}
+
+TEST_CASE(Test_Zones_PlacedBuildingsKeepTheirTier) {
+    clearTestGrid();
+    ScopedCoutSilence silence;
+    Play_Scene scene;
+    money = 10000;
+    utilRoadRow(10, 0, 30);
+    scene.placeTile(4, 11, TOOL_RES_COTTAGES);
+    ResidentalZone* h = dynamic_cast<ResidentalZone*>(entities[4][11]);
+    ASSERT_TRUE(h != NULL);
+    ASSERT_TRUE(h->fixedTier);
+    ASSERT_FALSE(h->zoned);
+
+    EconomySystem econ;
+    econ.happiness = 90;
+    for (int w = 0; w < WEALTH_COUNT; w++) econ.demand[SECTOR_R][w] = 80.f;
+    for (int d = 0; d < 150; d++) {
+        econ.dayCounter++;
+        econ.updateOccupancy();
+        h->overallHappiness = 90;
+    }
+    ASSERT_EQ(h->tier, 1);                                     // never upgrades...
+    ASSERT_EQ(h->population, h->capacity);                     // ...but still fills with demand
+    clearTestGrid();
+}
+
+TEST_CASE(Test_Zones_DemolishedLotRegrows) {
+    clearTestGrid();
+    ScopedCoutSilence silence;
+    Play_Scene scene;
+    money = 10000;
+    utilRoadRow(10, 0, 30);
+    for (const auto& o : FOOTPRINT_2X2) scene.placeTile(4 + o[0], 11 + o[1], TOOL_ZONE_C_LOW);   // exactly one lot
+    scene.economy.demand[SECTOR_C][WEALTH_LOW] = 10.f;
+    ASSERT_EQ(scene.growZones(), 1);
+    ASSERT_TRUE(dynamic_cast<CommericalZone*>(entities[4][11]) != NULL);
+
+    scene.placeTile(4, 11, TOOL_BULLDOZE);
+    ASSERT_TRUE(entities[4][11] == NULL);
+    ASSERT_EQ(static_cast<int>(world[4][11].zone), static_cast<int>(makeZone(SECTOR_C, 0)));   // zone kept
+    ASSERT_EQ(scene.growZones(), 1);
+    ASSERT_TRUE(dynamic_cast<CommericalZone*>(entities[4][11]) != NULL);
+
+    Toolbar tb;
+    tb.init(1600.f, 1000.f);
+    tb.setActiveTool(TOOL_ZONE_I_HIGH);
+    ASSERT_TRUE(tb.getActiveCategory() == ToolbarCategory::INDUSTRIAL);
+    tb.setActiveTool(TOOL_DEZONE);
+    ASSERT_TRUE(tb.getActiveCategory() == ToolbarCategory::INFRASTRUCTURE);
+    ASSERT_EQ(toolCost(TOOL_ZONE_R_LOW), ZONE_COST_PER_TILE);
+    ASSERT_EQ(toolCost(TOOL_DEZONE), 0);
+    clearTestGrid();
+}
+
+// -------------------------------------------------------------
+// Save / load, undo, services, fires, mines, buses, land value
+// -------------------------------------------------------------
+static ServiceZone* svcBuilding(int x, int y, int kind) {
+    ServiceZone* s = new ServiceZone(x, y, kind);
+    delete entities[x][y];
+    entities[x][y] = s;
+    s->checkValid();
+    return s;
+}
+
+TEST_CASE(Test_Save_RoundTrip) {
+    clearTestGrid();
+    ScopedCoutSilence silence;
+    Play_Scene scene;
+    money = 12345;
+    utilRoadRow(10, 0, 30);
+    RoadTile::at(5, 10)->setTier(2);
+    world[3][3].lines = LINE_POWER | LINE_PIPE;
+    world[8][14].zone = makeZone(SECTOR_C, 2);
+    world[9][9].groundwater = 17;
+    world[9][9].landValue = 77;
+    ResidentalZone* h = utilHome(4, 11, 21);
+    h->fixedTier = true;
+    UtilityZone* tower = utilBuilding(12, 11, UTIL_TOWER);
+    tower->stored = 123.f;
+    svcBuilding(16, 11, SERVICE_POLICE);
+    gameClock.restore(400, 0.25f, 2);
+    taxRates[SECTOR_I][WEALTH_HIGH] = 15;
+    scene.economy.takeLoan();
+
+    std::stringstream file;
+    ASSERT_TRUE(scene.writeCity(file));
+    const int savedMoney = money;
+
+    // Wreck everything, then load
+    clearTestGrid();
+    money = 0;
+    resetTaxRates();
+    scene.economy.reset();
+    std::stringstream in(file.str());
+    ASSERT_TRUE(scene.readCity(in, false));
+
+    ASSERT_EQ(money, savedMoney);
+    ASSERT_EQ(static_cast<int>(gameClock.getTotalDays()), 400);
+    ASSERT_EQ(gameClock.getSpeedIndex(), 2);
+    ASSERT_EQ(taxRates[SECTOR_I][WEALTH_HIGH], 15);
+    ASSERT_EQ(static_cast<int>(scene.economy.loans.size()), 1);
+    ASSERT_TRUE(RoadTile::at(5, 10) != NULL && RoadTile::at(5, 10)->tier == 2);
+    ASSERT_EQ(RoadTile::at(6, 10)->mask, 2 | 8);                         // autotiling rebuilt
+    ASSERT_EQ(static_cast<int>(world[3][3].lines), LINE_POWER | LINE_PIPE);
+    ASSERT_EQ(static_cast<int>(world[8][14].zone), static_cast<int>(makeZone(SECTOR_C, 2)));
+    ASSERT_EQ(static_cast<int>(world[9][9].groundwater), 17);
+    ResidentalZone* h2 = dynamic_cast<ResidentalZone*>(entities[4][11]);
+    ASSERT_TRUE(h2 != NULL);
+    ASSERT_EQ(h2->population, 21);
+    ASSERT_TRUE(h2->fixedTier);
+    ASSERT_TRUE(h2->isActive);
+    ASSERT_EQ(tileKind(5, 11), std::string("ResidentalZone"));          // sub tiles back
+    UtilityZone* t2 = dynamic_cast<UtilityZone*>(entities[12][11]);
+    ASSERT_TRUE(t2 != NULL && t2->kind == UTIL_TOWER);
+    ASSERT_NEAR(t2->stored, 123.f, 0.01f);
+    ASSERT_TRUE(dynamic_cast<ServiceZone*>(entities[16][11]) != NULL);
+
+    std::stringstream junk("NOTASAVE 1");
+    ASSERT_FALSE(scene.readCity(junk, false));
+    ASSERT_TRUE(dynamic_cast<ResidentalZone*>(entities[4][11]) != NULL);  // a bad file changes nothing
+    clearTestGrid();
+}
+
+TEST_CASE(Test_Undo_RestoresAndRefunds) {
+    clearTestGrid();
+    ScopedCoutSilence silence;
+    Play_Scene scene;
+    money = 5000;
+    utilRoadRow(10, 0, 30);
+    std::ostringstream before;
+    scene.writeCity(before);
+    scene.placeTile(4, 11, TOOL_SCHOOL);
+    ASSERT_EQ(money, 5000 - toolCost(TOOL_SCHOOL));
+    scene.undoStack.push_back({before.str(), toolCost(TOOL_SCHOOL)});
+    money -= 300;                                  // the city kept running meanwhile
+    ASSERT_TRUE(scene.undoLast());
+    ASSERT_TRUE(entities[4][11] == NULL);
+    ASSERT_EQ(money, 5000 - 300);                  // the school's price comes back, later spending stays
+    ASSERT_FALSE(scene.undoLast());                // nothing left
+    clearTestGrid();
+}
+
+TEST_CASE(Test_Services_CoverageAndGarbage) {
+    clearTestGrid();
+    ScopedCoutSilence silence;
+    utilRoadRow(10, 0, 40);
+    ResidentalZone* home = utilHome(4, 11, 200);
+    svcBuilding(8, 11, SERVICE_POLICE);
+    svcBuilding(14, 11, SERVICE_CLINIC);
+    roadNet.rebuild();
+    services.update();
+    ASSERT_EQ(static_cast<int>(services.policeMap[4][11]), 100);
+    ASSERT_EQ(static_cast<int>(services.clinicMap[30][30]), 0);
+    ASSERT_FALSE(services.grace);
+    ASSERT_FALSE(services.garbageOk(4, 11));            // 200 people, no landfill
+
+    HappinessSystem hs;
+    hs.updateSimulation();
+    const int unsafe = home->happinessIndex[3], ill = home->happinessIndex[4];
+    svcBuilding(20, 11, SERVICE_LANDFILL);
+    roadNet.rebuild();
+    services.update();
+    ASSERT_TRUE(services.garbageOk(4, 11));
+    ASSERT_NEAR(services.garbageMade, 200.f * GARBAGE_PER_CAPITA, 0.01f);
+    hs.updateSimulation();
+    ASSERT_EQ(home->happinessIndex[4] - ill, 15);       // collected garbage = healthier
+    ASSERT_EQ(home->happinessIndex[3], unsafe);
+
+    // A landfill on another road network does not help
+    delete entities[20][11]; entities[20][11] = NULL;
+    for (int x = 50; x <= 60; x++) entities[x][40] = new DirtRoad(x, 40);
+    svcBuilding(54, 41, SERVICE_LANDFILL);
+    roadNet.rebuild();
+    services.update();
+    ASSERT_FALSE(services.garbageOk(4, 11));
+    clearTestGrid();
+}
+
+TEST_CASE(Test_Services_FiresBurnWithoutStation) {
+    clearTestGrid();
+    ScopedCoutSilence silence;
+    utilRoadRow(10, 0, 40);
+    ResidentalZone* a = utilHome(4, 11, 50);
+    ResidentalZone* b = utilHome(30, 11, 50);
+    roadNet.rebuild();
+    services.update();
+
+    // Small towns never burn
+    a->fireDays = 1;
+    services.runDay(10, 100);
+    ASSERT_EQ(a->fireDays, 0);
+
+    // Unchecked, a fire destroys the building after FIRE_BURN_DAYS
+    a->fireDays = 1;
+    for (int d = 0; d <= FIRE_BURN_DAYS && entities[4][11] != NULL; d++) services.runDay(20 + d, 1000);
+    ASSERT_TRUE(entities[4][11] == NULL);
+
+    // A fire station in range puts it out the next day
+    svcBuilding(26, 11, SERVICE_FIRE);
+    roadNet.rebuild();
+    services.update();
+    b->fireDays = 1;
+    services.runDay(40, 1000);
+    ASSERT_EQ(b->fireDays, 0);
+    ASSERT_TRUE(entities[30][11] != NULL);
+    bool putOut = false;
+    for (const auto& e : services.events) putOut |= (e.kind == 1 && e.x == 30);
+    ASSERT_TRUE(putOut);
+    clearTestGrid();
+}
+
+TEST_CASE(Test_Services_MinesAndBuses) {
+    clearTestGrid();
+    ScopedCoutSilence silence;
+    Play_Scene scene;
+    money = 10000;
+    utilRoadRow(10, 0, 40);
+    std::string reason;
+    ASSERT_FALSE(scene.canPlaceTile(4, 11, TOOL_MINE, &reason));          // no deposit here
+    world[5][11].deposit = Deposit::Coal;
+    world[5][11].depositAmount = 80;
+    ASSERT_TRUE(scene.canPlaceTile(4, 11, TOOL_MINE));
+    scene.placeTile(4, 11, TOOL_MINE);
+    ServiceZone* mine = dynamic_cast<ServiceZone*>(entities[4][11]);
+    ASSERT_TRUE(mine != NULL);
+    ASSERT_EQ(mine->sector(), static_cast<int>(SECTOR_I));
+    ASSERT_EQ(mine->capacity, SERVICE_MINE_JOBS);
+    mine->population = 30;
+    ASSERT_TRUE(mine->dailyTax() > 0.f);
+    services.update();
+    ASSERT_EQ(services.activeMines, 1);
+    for (int d = 0; d < 10; d++) services.runDay(d, 0);                   // 30 miners x 0.02 = 0.6 a day
+    ASSERT_TRUE(world[5][11].depositAmount >= 74 && world[5][11].depositAmount <= 75);   // ~6 points used
+
+    // Bus depot: fewer car commuters nearby
+    ResidentalZone* home = utilHome(20, 11, 100);
+    CommericalZone* shop = new CommericalZone(26, 11, 1, 1);
+    entities[26][11] = shop;
+    shop->checkValid();
+    shop->population = 100;
+    roadNet.rebuild();
+    traffic.update();
+    const int cars = traffic.totalTrips;
+    svcBuilding(16, 11, SERVICE_BUS_DEPOT);
+    services.update();
+    ASSERT_EQ(static_cast<int>(services.busMap[20][11]), 100);
+    traffic.update();
+    ASSERT_TRUE(traffic.totalTrips < cars);
+    ASSERT_EQ(traffic.totalTrips, static_cast<int>(100.f * COMMUTER_SHARE * (1.f - BUS_RIDER_SHARE) + 0.5f));
+    (void)home;
+    clearTestGrid();
+}
+
+TEST_CASE(Test_LandValue_GatesUpgradesAndGrowth) {
+    clearTestGrid();
+    ScopedCoutSilence silence;
+    utilRoadRow(10, 0, 40);
+    // Land value from services / water / pollution
+    static int park[tileMapW][tileMapH], edu[tileMapW][tileMapH], com[tileMapW][tileMapH], pol[tileMapW][tileMapH];
+    static float jam[tileMapW][tileMapH];
+    std::memset(park, 0, sizeof(park)); std::memset(edu, 0, sizeof(edu)); std::memset(com, 0, sizeof(com));
+    std::memset(pol, 0, sizeof(pol)); std::memset(jam, 0, sizeof(jam));
+    park[5][5] = 100; edu[5][5] = 100;
+    pol[7][7] = 60;
+    world[20][20].terrain = Terrain::Water;
+    services.computeLandValue(park, edu, com, pol, jam);
+    ASSERT_EQ(static_cast<int>(world[5][5].landValue), 65);        // 30 + 20 + 15
+    ASSERT_EQ(static_cast<int>(world[7][7].landValue), 0);         // 30 - 30
+    ASSERT_EQ(static_cast<int>(world[21][21].landValue), 42);      // 30 + water nearby
+    ASSERT_EQ(static_cast<int>(world[20][20].landValue), 0);
+
+    // Low land value blocks the upgrade a happy, full, wanted building would get
+    EconomySystem econ;
+    econ.happiness = 90;
+    for (int w = 0; w < WEALTH_COUNT; w++) econ.demand[SECTOR_R][w] = 80.f;
+    ResidentalZone* h = utilHome(4, 11, 0);
+    h->population = h->capacity;
+    world[4][11].landValue = LAND_VALUE_TIER2 - 1;
+    for (int d = 0; d < 100; d++) { econ.dayCounter++; econ.updateOccupancy(); h->overallHappiness = 90; }
+    ASSERT_EQ(h->tier, 1);
+    world[4][11].landValue = LAND_VALUE_TIER2;
+    for (int d = 0; d < 100; d++) { econ.dayCounter++; econ.updateOccupancy(); h->overallHappiness = 90; }
+    ASSERT_EQ(h->tier, 2);                                         // tier 3 needs 60
+    clearTestGrid();
+
+    // Zones grow the richest wanted tier the density and land value allow
+    Play_Scene scene;
+    money = 10000;
+    utilRoadRow(10, 0, 30);
+    for (const auto& o : FOOTPRINT_2X2) {
+        scene.placeTile(4 + o[0], 11 + o[1], TOOL_ZONE_R_HIGH);
+        world[4 + o[0]][11 + o[1]].landValue = 70;
+    }
+    scene.economy.demand[SECTOR_R][WEALTH_LOW] = -10.f;
+    scene.economy.demand[SECTOR_R][WEALTH_MID] = 40.f;
+    scene.economy.demand[SECTOR_R][WEALTH_HIGH] = -50.f;
+    ASSERT_EQ(scene.growZones(), 1);
+    ResidentalZone* grown = dynamic_cast<ResidentalZone*>(entities[4][11]);
+    ASSERT_TRUE(grown != NULL);
+    ASSERT_EQ(grown->tier, 2);
+    ASSERT_TRUE(grown->zoned);
+    clearTestGrid();
+}
+
+// -------------------------------------------------------------
+// Waste, sewage, tax undo, buses
+// -------------------------------------------------------------
+TEST_CASE(Test_Waste_DisposalOrderAndLandfillFills) {
+    clearTestGrid();
+    ScopedCoutSilence silence;
+    utilRoadRow(10, 0, 40);
+    ResidentalZone* home = utilHome(4, 11, 1000);             // 100 garbage a day
+    ServiceZone* fill = svcBuilding(20, 11, SERVICE_LANDFILL);
+    roadNet.rebuild();
+    services.update();
+    ASSERT_TRUE(services.garbageOk(4, 11));
+    ASSERT_NEAR(services.dumped, 100.f, 0.01f);
+    services.runDay(1, 0);                                    // the day's garbage goes in
+    ASSERT_NEAR(fill->stored, 100.f, 0.01f);
+
+    // Recycling takes it first, so the landfill stops filling
+    ServiceZone* rec = svcBuilding(24, 11, SERVICE_RECYCLING);
+    services.update();
+    ASSERT_NEAR(services.recycled, 100.f, 0.01f);
+    ASSERT_NEAR(fill->handled, 0.f, 0.01f);
+    delete entities[24][11]; entities[24][11] = NULL;
+    (void)rec;
+
+    // A nearly full landfill can't take a whole day's load; once full it takes nothing
+    fill->stored = LANDFILL_SPACE - 50.f;
+    services.update();
+    ASSERT_FALSE(services.garbageOk(4, 11));
+    home->population = 400;                                   // 40 a day fits
+    fill->stored = LANDFILL_SPACE - 40.f;
+    services.update();
+    ASSERT_TRUE(services.garbageOk(4, 11));
+    services.runDay(2, 0);
+    ASSERT_NEAR(fill->stored, LANDFILL_SPACE, 0.01f);
+    bool fullEvent = false;
+    for (const auto& e : services.events) fullEvent |= e.kind == 3;
+    ASSERT_TRUE(fullEvent);
+    services.update();
+    ASSERT_EQ(services.fullLandfills, 1);
+    ASSERT_FALSE(services.garbageOk(4, 11));
+    clearTestGrid();
+}
+
+TEST_CASE(Test_Waste_IncineratorMakesPower) {
+    clearTestGrid();
+    ScopedCoutSilence silence;
+    utilRoadRow(10, 0, 40);
+    utilHome(4, 11, 400);                                     // 40 garbage a day
+    utilBuilding(8, 11, UTIL_TRANSFORMER);
+    svcBuilding(20, 11, SERVICE_INCINERATOR);
+    roadNet.rebuild();
+    services.update();
+    ASSERT_NEAR(services.burnt, 40.f, 0.01f);
+    utilities.refreshService();
+    const UtilityGrid* g = utilities.powerGridAt(4, 11);
+    ASSERT_TRUE(g != nullptr);
+    ASSERT_NEAR(g->powerSupply, 40.f * INCINERATOR_POWER, 0.01f);   // no plant at all, yet power
+    clearTestGrid();
+}
+
+TEST_CASE(Test_Sewage_PlantsOutflowsAndHealth) {
+    clearTestGrid();
+    ScopedCoutSilence silence;
+    utilRoadRow(10, 0, 40);
+    ResidentalZone* h = utilHome(4, 11, 300);
+    utilities.refreshService();
+    ASSERT_TRUE(utilities.sewageGrace);                       // under 400 people: septic tanks
+    ASSERT_TRUE(utilities.sewered(4, 11));
+    h->population = 500;
+    utilities.refreshService();
+    ASSERT_FALSE(utilities.sewered(4, 11));
+
+    HappinessSystem hs;
+    hs.updateSimulation();
+    const int ill = h->happinessIndex[4];
+    utilBuilding(20, 11, UTIL_SEWAGE_PLANT);
+    utilities.refreshService();
+    ASSERT_TRUE(utilities.sewered(4, 11));
+    hs.updateSimulation();
+    ASSERT_EQ(h->happinessIndex[4] - ill, 15);
+
+    // Outflows must touch water (but need no road)
+    Play_Scene scene;
+    money = 10000;
+    std::string reason;
+    ASSERT_FALSE(scene.canPlaceTile(30, 30, TOOL_SEWAGE_OUTFLOW, &reason));
+    ASSERT_EQ(reason, std::string("Sewage Outflow Must Touch Water"));
+    world[29][30].terrain = Terrain::Water;
+    ASSERT_TRUE(scene.canPlaceTile(30, 30, TOOL_SEWAGE_OUTFLOW));
+    clearTestGrid();
+}
+
+TEST_CASE(Test_Undo_TaxChange) {
+    clearTestGrid();
+    ScopedCoutSilence silence;
+    Play_Scene scene;
+    scene.setBudgetOpen(true);
+    sf::FloatRect t = scene.taxSliderBounds(SECTOR_R, WEALTH_LOW);
+    sf::Vector2f p(t.left + t.width * 0.9f, t.top + t.height / 2.f);
+    ASSERT_TRUE(scene.handleBudgetPointer(p, true, true));
+    scene.handleBudgetPointer(p, false, false);             // release
+    ASSERT_EQ(taxRates[SECTOR_R][WEALTH_LOW], 18);
+    ASSERT_TRUE(scene.undoLast());
+    ASSERT_EQ(taxRates[SECTOR_R][WEALTH_LOW], TAX_DEFAULT);
+    clearTestGrid();
+}
+
+TEST_CASE(Test_Cars_BusesLeaveDepots) {
+    clearTestGrid();
+    ScopedCoutSilence silence;
+    utilRoadRow(10, 0, 30);
+    for (int x = 0; x <= 30; x++) RoadTile::at(x, 10)->check();
+    svcBuilding(10, 11, SERVICE_BUS_DEPOT);
+    roadNet.rebuild();
+    CarRenderer cars;
+    for (int k = 0; k < 40; k++) cars.update(0.25f);
+    int buses = 0;
+    for (const auto& c : cars.cars) {
+        if (c.model == CarRenderer::BUS) buses++;
+        ASSERT_TRUE(RoadTile::at(c.x, c.y) != NULL);
+    }
+    ASSERT_TRUE(buses >= 1 && buses <= BUSES_PER_DEPOT);
+    clearTestGrid();
+}
+
 int main() {
     // Setup minimal environment globals for tests
     m_textures["grass"] = sf::Texture();

@@ -49,7 +49,11 @@ std::string benchShot; // --shot file.png: save a screenshot when --bench ends
 bool headless=false;   // --headless (implied by --bench, undo with --show): off-screen window that never takes focus
 bool benchCity=false;
 bool benchTown=false;  // --bench-town: a small starter town (~20 buildings) for balance checks
+std::string savePath;  // --save file.sav: save the city when --bench ends
+std::string loadPath;  // --load file.sav: open a saved city at start-up
+bool starterCity=false; // --starter: bench town + road showcase (asphalt, avenue, roundabout), 60 days pre-simulated
 // Screenshot helpers: --menu N opens build category N (1-5), --inspect X Y selects a tile, --view N sets the map view
+bool startLog=false;    // --messages: open the message log (screenshots)
 bool startBudget=false; // --budget: open the budget panel (screenshots)
 int startMenu=-1, startInspectX=-1, startInspectY=-1, startView=0;  // --bench-city: fill the map with a dense test city before benchmarking
 int fastForwardDays=0; // --fast-forward N: simulate N days at start-up and print the economy trend

@@ -50,15 +50,15 @@ The window can be resized or maximized. A bigger window shows more map, and the 
 | **Population chip** | Top bar | Citizens, plus **9 demand bars**: R / C / I groups, each split $ / $$ / $$$. Bars going up mean demand; red bars going down mean a surplus |
 | **Happiness chip** | Top bar | City-wide happiness (green ≥ 75, yellow ≥ 50, red below) |
 | **Date chip** | Top bar | Date, season and the speed buttons `‖ ▶ ▶▶ ▶▶▶` |
-| **Map View** | Top right | Normal / Fertility / Groundwater / Deposits, with a colour legend |
-| **Inspect card** | Right | The hovered building or tile: tier stars, road status, tax or upkeep per day, occupancy, happiness, and the land underneath |
+| **Map View** | Top right | Normal / Fertility / Groundwater / Deposits / Traffic / Power / Water, with a colour legend |
+| **Inspect card** | Right | The hovered building or tile: tier stars, road and outside-connection status, tax or upkeep per day, occupancy, happiness, and the land underneath. On a road: tier, capacity, today's trips and congestion |
 | **Toasts** | Bottom | Build errors and debt warnings |
 
 ---
 
 ## 3. Buildings
 
-All 2×2 buildings need a road on one of the **8 tiles that share a full edge** with their footprint. A road that only touches a corner (a diamond tip) does not count.
+All 2×2 buildings need a land road (any tier, not a bridge deck) on one of the **8 tiles that share a full edge** with their footprint. A road that only touches a corner (a diamond tip) does not count.
 
 | Building | Hotkey | Cost | Income level | Capacity | Upkeep / day |
 |---|---|---|---|---|---|
@@ -77,7 +77,10 @@ All 2×2 buildings need a road on one of the **8 tiles that share a full edge** 
 | Community Church | `2` | $180 | – | – | $20 |
 | Nature Park | `3` | $80 | – | – | $10 (always active once built) |
 | Trade Harbour | `H` | $250 | C $$ | 30 port jobs | $40 |
-| Dirt Road | `Space` | $10 / tile | – | – | $1 / tile |
+| Dirt Road | `Space` | $10 / tile | – | 40 trips / day | $1 / tile |
+| Asphalt Road | | $30 / tile | – | 120 trips / day | $3 / tile |
+| Avenue | | $80 / tile | – | 300 trips / day | $6 / tile |
+| Roundabout | | $150 | – | junction ×1.5 | +$2 |
 | Water Body | `W` | $20 / tile | – | – | – |
 | Demolish | `X` | $5 (forest $15, rock $60) | – | – | – |
 
@@ -85,6 +88,68 @@ All 2×2 buildings need a road on one of the **8 tiles that share a full edge** 
 - **Farms** don't pollute. Their income depends on soil (×0.4 on barren land up to ×1.6 on rich soil) and on the season (see §6).
 - **Harbours** must touch water and a road. Each active harbour adds export demand for low- and medium-income industry.
 - **Demolishing** a building returns its tiles to the original ground: grass, sand or forest path.
+
+### Roads
+- **Shape:** roads join only across a shared diamond edge. Each tile picks one of 16 pieces (straight, corner, T, crossing, dead end) from its four edge neighbours. A drag always lays an edge-connected L: first along the SE / NW axis, then along NE / SW.
+- **Upgrades:** drag a higher tier over existing roads to upgrade them in place; you pay only the price difference. Equal or higher tiers on the path are skipped.
+- **Bridges:** drag straight across water, from land to land, over at most **8** water tiles. A deck costs 5× the tier's road price and 3× its upkeep. Bridges only link along their own axis, and buildings cannot use a deck as their road access. Demolishing a deck leaves the water.
+- **Roundabouts:** only on a 3- or 4-way land junction. A plain junction carries ×0.7 of its tier's capacity; a roundabout carries ×1.5.
+- **Outside connection:** a road network that reaches the **map edge** connects the city to the outside. Buildings on an isolated network still work, but grow at a quarter of the rate, only to half full, and never upgrade. The inspect card shows "No outside link - slow growth".
+
+### Zones
+- **Painting:** each R / C / I menu starts with three zone tools: **Low**, **Medium** and **High density** ($5 per tile, drag a rectangle). Water, roads, forest and rock are skipped. **Dezone** (Roads menu, free) removes zones; bulldozing bare zoned ground does too. Demolishing a building keeps its zone.
+- **Growth:** once a day, each sector with low-income demand grows up to 1 + demand ÷ 30 (max 3) new tier-1 buildings on zoned lots: all 4 tiles of the 2×2 lot must carry the same zone, be empty and touch a road (pylons block a lot). Growing is free.
+- **Density caps the tier:** low-density buildings stay tier 1, medium reach tier 2, high reach tier 3 (upgrades still need a full building, happy residents and demand for the next income level).
+- **Placed buildings:** the building cards under the zones place that exact building. It keeps its tier forever (no upgrade, no downgrade) but still fills only while its income level has demand.
+
+### City services
+| Building | Cost | Upkeep | Does |
+|---|---|---|---|
+| Police station | $400 | $15 | Safety for homes within 7 tiles. From 500 residents, homes without police lose safety |
+| Fire station | $400 | $15 | Puts out fires within 7 tiles the next day and stops new ones there |
+| Clinic | $500 | $20 | Health for homes within 7 tiles |
+| Landfill | $600 | $8 | Stores garbage (up to 300 a day) until 15,000 are used up; a full landfill is done for good. Pollutes radius 3 |
+| Incinerator | $1,400 | $18 | Burns 200 garbage a day and turns it into 100 power on its grid. Pollutes radius 5 |
+| Recycling centre | $1,100 | $22 | Recycles 120 garbage a day, cleanly |
+| Mine | $800 | — | 30 industrial jobs on a coal / iron / stone deposit; pays more on rich deposits and slowly uses them up; boosts industrial demand |
+| Bus depot | $700 | $15 | 30% of commuters within 8 tiles take the bus instead of a car |
+
+- **Garbage:** every occupant makes 0.1 garbage a day. Trucks take it by road to the facilities on the same road network: recycling first, then incinerators, then landfills. Garbage never vanishes on its own; a building no facility can take loses 15 health for its residents (from 150 citizens).
+- **Sewage:** waste water (as much as a building's water use) runs through roads and pipes to a **sewage outflow** ($250, $2/day, must touch water, pollutes radius 4) or a **sewage treatment plant** ($1,200, $12/day), 300 a day each. From 400 citizens, homes without sewers lose 15 health. Both are in the **Waste & Sewage** menu with the garbage buildings.
+- **Buses:** each bus depot runs 3 yellow buses on the roads around it.
+- **Fires** start only once a town has 300 residents: rarely, at random, in any building except parks, farms, fire stations and utilities. An unchecked fire spreads to nearby buildings and burns its building down after 4 days (the zone stays). The message log (`L`) lists every fire.
+- **Land value** (0-100, Land value map view): 30 + parks, schools, shops, police, clinics and nearby water, minus pollution and jammed roads. A building needs **40** to reach tier 2 and **60** for tier 3; zones grow the richest wanted tier the density and land value allow.
+- **Saving:** `F5` saves to `city.sav`, `F9` loads it (or the monthly / on-exit autosave). `Z` undoes the last build and refunds its cost.
+
+### Traffic (daily)
+- Every occupied, road-connected home sends **60%** of its residents to work. Each home searches its road network (asphalt is 1.5× and avenues 2× as fast as dirt) and fills the **nearest jobs** first; a job building takes as many commuters as it has workers.
+- Commuters with no job left in reach drive to the nearest map-edge road if the network has an outside connection.
+- Each trip adds 1 to every road tile on its route. **Congestion** = trips ÷ capacity (with the junction factors above).
+- A home whose average route congestion is over 100% loses up to **20 happiness** (20 × (congestion − 1)). City-wide jams over 100% cut commercial demand by up to 25, and the budget hint says "Traffic jams".
+- The **Traffic** map view colours roads green (free) → yellow (busy) → red (jammed). Cars on the map follow the same loads and slow down on jammed tiles; they are visual only.
+
+### Power & water
+Utilities travel along **roads, power lines and water pipes**. Every road carries both; a power line (dragged, $8 per tile, overground pylons) carries power, a pipe (dragged, $6 per tile, underground, can pass under roads and buildings) carries water. Lines cost $1 a day per 10 tiles. Everything connected shares one grid, and a building touching two networks joins them. Power and water buildings need **no road** — only a road or line of their own kind touching them.
+
+| Building | Cost | Upkeep | Does |
+|---|---|---|---|
+| Coal plant | $1,500 | $25 | 400 power, 500 on a coal deposit. Pollutes radius 5 |
+| Wind turbines | $400 | $3 | 60 power |
+| Solar farm | $800 | $8 | 120 power × season (summer 1.2, autumn 0.8, winter 0.5) |
+| Transformer | $300 | $4 | Delivers up to 150 power to the buildings on its grid |
+| Water well | $150 | $1 | 80 clean water × groundwater (radius 2) |
+| Underground pump | $600 | $12 | 400 raw water × groundwater (radius 4) |
+| Water treatment | $900 | $18 | Cleans 400 raw water. Mild pollution radius 3 |
+| Water tower | $350 | $5 | Stores 300 spare clean water for dry days |
+| Power line | $8 / tile | $1 per 10 tiles | Carries power; blocks buildings, crosses open land |
+| Water pipe | $6 / tile | $1 per 10 tiles | Carries water underground |
+
+- **Power needs transformers.** A plant alone powers nothing. A grid delivers the smaller of its plant output and 150 power per transformer, to any building connected to it, however far away; add transformers as demand grows. A plant that is cut off or has no transformer on its grid blinks a warning, and its inspect card says why.
+- **Seeing the networks:** the Power and Water map views draw every line, pipe and road that carries them; choosing a power or water tool switches to that view automatically.
+- **Groundwater is a reserve.** Wells and pumps lower it in their radius as they deliver water, and their output falls with it. It recharges slowly towards its natural level (faster in spring and near lakes, slower in summer). The Groundwater and Water views show the live reserve; the placement pill shows a well's or pump's output at the cursor.
+- **Untreated water:** pump water beyond the treatment capacity still reaches homes but costs them 20 health.
+- **Demand** = occupants × use per person (power: homes 0.25, shops 0.5, industry 0.8; water: 0.2 / 0.1 / 0.3) × tier (1 / 1.3 / 1.7) × city size (1 + population / 3,000). Empty buildings still need 10%.
+- **Penalty:** towns under **150** citizens need no utilities. After that, a building without power or water gets no new occupants and no upgrades and slowly shrinks to a quarter full; homes lose 12 happiness per missing utility. Blinking icons mark unserved buildings, the top bar shows power and water delivered vs needed, and a toast warns about shortages at most once a week.
 
 ---
 
@@ -115,6 +180,7 @@ Hover a row in the budget panel to see the main reason a bucket's demand is held
 
 ### People moving in and out (daily)
 - **Road-connected building, positive demand:** gains `capacity × (4% + 12% × demand/100)` occupants (at least 1), up to capacity.
+- **No outside connection:** a quarter of that gain, up to half of capacity (a fuller building loses a tenth of its capacity per day down to half).
 - **Demand below −15:** loses `capacity × 8% × |demand|/100` occupants.
 - **No road:** loses a fifth of its capacity per day.
 
@@ -210,12 +276,13 @@ Every city is a new 64×64 world generated from a seed. Launch with `--seed N` t
 | Forest paths | Buildable trails; roads can be laid on them |
 | Rocky hills | Block building; bulldoze for $60. Stone and iron are found in and around them |
 | Soil fertility | Farm output ×0.4-×1.6; best near rivers and lakes |
-| Groundwater | Underground water table (reserved for future water pumps) |
+| Groundwater | Underground water reserve for wells and pumps; drains as they pump, recharges slowly |
 | Coal / iron / stone | Ore clusters (reserved for future mines) |
 
 **Map View** (top right or `O`) tints the map:
 - **Fertility:** red = barren, green = rich.
-- **Groundwater:** deeper blue = more water.
+- **Groundwater:** deeper blue = more water (the live reserve).
+- **Traffic / Power / Water:** road congestion; served (green) vs unserved (red) buildings, plants and transformer range; clean / untreated / dry buildings over the reserve.
 - **Deposits:** coal black, iron orange, stone white.
 
 **Generation order:** heightmap with a coastline on 1-2 map edges → ocean → lakes → rivers → beaches → hills → forests → forest paths → start area → fertility → groundwater → deposits. Generation is deterministic: the same seed always gives the same world.

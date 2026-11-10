@@ -24,6 +24,13 @@ public:
     int tier = 1;
     int variant = 1;
     int overallHappiness = 50;
+    // Tier rules: buildings placed by hand keep their tier (fixedTier);
+    // buildings grown on a zone upgrade up to the zone density's maxTier
+    bool fixedTier = false;
+    bool zoned = false;
+    int maxTier = 3;
+    int fireDays = 0;       // > 0 while burning (days so far)
+    float depleteCarry = 0.f; // mines: fractional deposit used up
 
     std::string zoneBaseTexture = "";
     std::string buildingTexture = "";

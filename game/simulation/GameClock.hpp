@@ -1,5 +1,6 @@
 #pragma once
 #include <string>
+#include <algorithm>
 
 // -------------------------------------------------------------
 // Game clock, calendar and seasons
@@ -58,6 +59,13 @@ public:
     int getSpeedIndex() const { return speedIndex; }
     int getSpeedMultiplier() const { return SPEEDS[speedIndex]; }
     bool isPaused() const { return speedIndex == 0; }
+
+    // Save games: put the calendar back exactly
+    void restore(long days, float progress, int speed) {
+        totalDays = days < 0 ? 0 : days;
+        dayProgress = std::max(0.f, std::min(0.999f, progress));
+        setSpeedIndex(speed);
+    }
 
     void setSpeedIndex(int index) {
         if (index < 0) index = 0;

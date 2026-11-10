@@ -36,8 +36,35 @@ enum BuildTool {
 
     // Infrastructure
     TOOL_ROAD,            // Dirt Road
+    TOOL_ROAD_ASPHALT,    // Asphalt Road (also upgrades dirt)
+    TOOL_ROAD_AVENUE,     // Avenue (also upgrades dirt / asphalt)
+    TOOL_ROUNDABOUT,      // Converts a 3- or 4-way junction
     TOOL_WATER,           // Water Body
     TOOL_BULLDOZE,        // Demolish ($5, $15 forest, $60 rock)
+
+    // Power & water (2x2 utility buildings, same order as UtilityKind)
+    TOOL_POWER_COAL,
+    TOOL_POWER_WIND,
+    TOOL_POWER_SOLAR,
+    TOOL_TRANSFORMER,
+    TOOL_WATER_WELL,
+    TOOL_WATER_PUMP,
+    TOOL_WATER_TREATMENT,
+    TOOL_WATER_TOWER,
+    TOOL_POWER_LINE,      // 1x1 drag: overground power line
+    TOOL_WATER_PIPE,      // 1x1 drag: underground water pipe
+
+    // Zones (rectangle drag): R / C / I x Low / Medium / High density, in makeZone order
+    TOOL_ZONE_R_LOW, TOOL_ZONE_R_MED, TOOL_ZONE_R_HIGH,
+    TOOL_ZONE_C_LOW, TOOL_ZONE_C_MED, TOOL_ZONE_C_HIGH,
+    TOOL_ZONE_I_LOW, TOOL_ZONE_I_MED, TOOL_ZONE_I_HIGH,
+    TOOL_DEZONE,          // clears zones (buildings stay)
+
+    // City services (2x2, same order as ServiceKind)
+    TOOL_POLICE, TOOL_FIRE_STATION, TOOL_CLINIC, TOOL_LANDFILL, TOOL_MINE, TOOL_BUS_DEPOT,
+    TOOL_INCINERATOR, TOOL_RECYCLING,
+    // Sewage (utility buildings)
+    TOOL_SEWAGE_OUTFLOW, TOOL_SEWAGE_PLANT,
 
     // Compatibility Aliases
     TOOL_RESIDENTIAL = TOOL_RES_COTTAGES,
@@ -60,16 +87,62 @@ inline int toolCost(BuildTool tool) {
         case TOOL_IND_TECH:       return 800;
         case TOOL_FARM_BARN:      return 70;
         case TOOL_FARM_WINDMILL:  return 90;
-        case TOOL_ROAD:           return 10;
+        case TOOL_ROAD:           return ROAD_COST[0];
+        case TOOL_ROAD_ASPHALT:   return ROAD_COST[1];
+        case TOOL_ROAD_AVENUE:    return ROAD_COST[2];
+        case TOOL_ROUNDABOUT:     return ROUNDABOUT_COST;
         case TOOL_HARBOUR:        return 250;
         case TOOL_WATER:          return 20;
         case TOOL_SCHOOL:         return 200;
         case TOOL_CHURCH:         return 180;
         case TOOL_PARK:           return 80;
         case TOOL_BULLDOZE:       return 5;
+        case TOOL_POWER_COAL: case TOOL_POWER_WIND: case TOOL_POWER_SOLAR: case TOOL_TRANSFORMER:
+        case TOOL_WATER_WELL: case TOOL_WATER_PUMP: case TOOL_WATER_TREATMENT: case TOOL_WATER_TOWER:
+            return UTIL_COST[tool - TOOL_POWER_COAL];
+        case TOOL_POWER_LINE:     return LINE_COST_POWER;
+        case TOOL_WATER_PIPE:     return LINE_COST_PIPE;
+        case TOOL_ZONE_R_LOW: case TOOL_ZONE_R_MED: case TOOL_ZONE_R_HIGH:
+        case TOOL_ZONE_C_LOW: case TOOL_ZONE_C_MED: case TOOL_ZONE_C_HIGH:
+        case TOOL_ZONE_I_LOW: case TOOL_ZONE_I_MED: case TOOL_ZONE_I_HIGH:
+            return ZONE_COST_PER_TILE;
+        case TOOL_DEZONE:         return 0;
+        case TOOL_POLICE: case TOOL_FIRE_STATION: case TOOL_CLINIC:
+        case TOOL_LANDFILL: case TOOL_MINE: case TOOL_BUS_DEPOT:
+        case TOOL_INCINERATOR: case TOOL_RECYCLING:
+            return SERVICE_COST[tool - TOOL_POLICE];
+        case TOOL_SEWAGE_OUTFLOW: return UTIL_COST[UTIL_SEWAGE_OUTFLOW];
+        case TOOL_SEWAGE_PLANT:   return UTIL_COST[UTIL_SEWAGE_PLANT];
         default: return 0;
     }
 }
+
+// Tools that lay road tiles; the value is the road tier they build
+inline bool isRoadTool(BuildTool tool) {
+    return tool == TOOL_ROAD || tool == TOOL_ROAD_ASPHALT || tool == TOOL_ROAD_AVENUE;
+}
+inline int roadToolTier(BuildTool tool) {
+    return tool == TOOL_ROAD_AVENUE ? 2 : (tool == TOOL_ROAD_ASPHALT ? 1 : 0);
+}
+
+// Power & water tools; the value is the UtilityKind they build
+inline bool isUtilityTool(BuildTool tool) {
+    return (tool >= TOOL_POWER_COAL && tool <= TOOL_WATER_TOWER) || tool == TOOL_SEWAGE_OUTFLOW || tool == TOOL_SEWAGE_PLANT;
+}
+inline int utilityToolKind(BuildTool tool) {
+    if (tool == TOOL_SEWAGE_OUTFLOW) return UTIL_SEWAGE_OUTFLOW;
+    if (tool == TOOL_SEWAGE_PLANT) return UTIL_SEWAGE_PLANT;
+    return (tool >= TOOL_POWER_COAL && tool <= TOOL_WATER_TOWER) ? static_cast<int>(tool - TOOL_POWER_COAL) : -1;
+}
+// Power line / water pipe tools; the value is the LINE_* bit they lay
+// Service tools; the value is the ServiceKind they build
+inline bool isServiceTool(BuildTool tool) { return tool >= TOOL_POLICE && tool <= TOOL_RECYCLING; }
+inline int serviceToolKind(BuildTool tool) { return isServiceTool(tool) ? static_cast<int>(tool - TOOL_POLICE) : -1; }
+// Zone tools; the value is the TileData::zone they paint (1 + sector * 3 + density)
+inline bool isZoneTool(BuildTool tool) { return tool >= TOOL_ZONE_R_LOW && tool <= TOOL_ZONE_I_HIGH; }
+inline uint8_t zoneToolValue(BuildTool tool) { return isZoneTool(tool) ? static_cast<uint8_t>(1 + (tool - TOOL_ZONE_R_LOW)) : 0; }
+inline bool isLineTool(BuildTool tool) { return tool == TOOL_POWER_LINE || tool == TOOL_WATER_PIPE; }
+inline uint8_t lineToolBit(BuildTool tool) { return tool == TOOL_POWER_LINE ? 1 : (tool == TOOL_WATER_PIPE ? 2 : 0); }
 
 // Texture shown on the tool's card and used as its placement ghost
 inline std::string toolThumbnailKey(BuildTool tool) {
@@ -89,9 +162,36 @@ inline std::string toolThumbnailKey(BuildTool tool) {
         case TOOL_CHURCH:         return "church";
         case TOOL_PARK:           return "park";
         case TOOL_HARBOUR:        return "harbour";
-        case TOOL_ROAD:           return "road";
+        case TOOL_ROAD:           return "road_dirt_icon";
+        case TOOL_ROAD_ASPHALT:   return "road_asphalt_icon";
+        case TOOL_ROAD_AVENUE:    return "road_avenue_icon";
+        case TOOL_ROUNDABOUT:     return "roundabout_icon";
         case TOOL_WATER:          return "water";
         case TOOL_BULLDOZE:       return "ui_bulldoze";
+        case TOOL_POWER_COAL:     return "util_coal";
+        case TOOL_POWER_WIND:     return "util_wind";
+        case TOOL_POWER_SOLAR:    return "util_solar";
+        case TOOL_TRANSFORMER:    return "util_transformer";
+        case TOOL_WATER_WELL:     return "util_well";
+        case TOOL_WATER_PUMP:     return "util_pump";
+        case TOOL_WATER_TREATMENT: return "util_treatment";
+        case TOOL_WATER_TOWER:    return "util_tower";
+        case TOOL_POWER_LINE:     return "ui_power_line";
+        case TOOL_WATER_PIPE:     return "ui_water_pipe";
+        case TOOL_ZONE_R_LOW: case TOOL_ZONE_R_MED: case TOOL_ZONE_R_HIGH: return "zone_residental";
+        case TOOL_ZONE_C_LOW: case TOOL_ZONE_C_MED: case TOOL_ZONE_C_HIGH: return "zone_commercial";
+        case TOOL_ZONE_I_LOW: case TOOL_ZONE_I_MED: case TOOL_ZONE_I_HIGH: return "zone_industrial";
+        case TOOL_DEZONE:         return "ui_bulldoze";
+        case TOOL_POLICE:         return "svc_police";
+        case TOOL_FIRE_STATION:   return "svc_fire";
+        case TOOL_CLINIC:         return "svc_clinic";
+        case TOOL_LANDFILL:       return "svc_landfill";
+        case TOOL_MINE:           return "svc_mine";
+        case TOOL_BUS_DEPOT:      return "svc_bus";
+        case TOOL_INCINERATOR:    return "svc_incinerator";
+        case TOOL_RECYCLING:      return "svc_recycling";
+        case TOOL_SEWAGE_OUTFLOW: return "util_outflow";
+        case TOOL_SEWAGE_PLANT:   return "util_sewage";
         default:                  return "";
     }
 }
@@ -102,7 +202,9 @@ enum class ToolbarCategory {
     COMMERCIAL,
     INDUSTRIAL,
     CIVICS,
-    INFRASTRUCTURE
+    INFRASTRUCTURE,
+    UTILITIES,
+    WASTE
 };
 
 struct ToolItem {
@@ -132,6 +234,10 @@ struct CategoryTab {
 
 class Toolbar {
     BuildTool currentTool = TOOL_NONE;
+public:
+    int dragCostPreview = -1; // total cost of the drag in progress (-1 = show the tool price)
+    std::string pillNote;     // extra line on the pill (e.g. a well's expected output here)
+private:
     ToolbarCategory activeCategory = ToolbarCategory::INSPECT;
     bool flyoutOpen = false;
 
@@ -183,35 +289,75 @@ public:
         addTab(ToolbarCategory::COMMERCIAL, "Commercial", "commercial", "C", sf::Color(70, 160, 235));
         addTab(ToolbarCategory::INDUSTRIAL, "Industry & Farms", "industrial", "I / F", sf::Color(235, 140, 50));
         addTab(ToolbarCategory::CIVICS, "Civic & Ports", "civic", "1 2 3 H", sf::Color(170, 120, 220));
-        addTab(ToolbarCategory::INFRASTRUCTURE, "Roads & Utilities", "road", "Space W X", sf::Color(160, 172, 186));
+        addTab(ToolbarCategory::INFRASTRUCTURE, "Roads", "road", "Space W X", sf::Color(160, 172, 186));
+        addTab(ToolbarCategory::UTILITIES, "Power & Water", "utilities", "U", sf::Color(245, 200, 60));
+        addTab(ToolbarCategory::WASTE, "Waste & Sewage", "waste", "", sf::Color(150, 130, 90));
 
         allTools.clear();
         auto add = [&](BuildTool t, const char* title, const char* sub, const char* key, sf::Color c, ToolbarCategory cat) {
             allTools.push_back({t, title, sub, key, c, cat});
         };
         using C = ToolbarCategory;
-        add(TOOL_RES_COTTAGES, "SUBURBAN COTTAGES", "2x2 housing - Tier 1", "R", sf::Color(72, 200, 110), C::RESIDENTIAL);
-        add(TOOL_RES_APARTMENTS, "BRICK APARTMENTS", "2x2 housing - Tier 2", "", sf::Color(72, 200, 110), C::RESIDENTIAL);
-        add(TOOL_RES_TOWER, "LUXURY HIGHRISE", "2x2 housing - Tier 3", "", sf::Color(72, 200, 110), C::RESIDENTIAL);
+        // Zones first (buildings grow by themselves), then buildings placed by hand (fixed tier)
+        const sf::Color rc(72, 200, 110), cc(70, 160, 235), ic(235, 140, 50);
+        add(TOOL_ZONE_R_LOW, "LOW DENSITY", "Zone: houses, tier 1 - $5/tile", "R", rc, C::RESIDENTIAL);
+        add(TOOL_ZONE_R_MED, "MEDIUM DENSITY", "Zone: grows to tier 2 - $5/tile", "", rc, C::RESIDENTIAL);
+        add(TOOL_ZONE_R_HIGH, "HIGH DENSITY", "Zone: grows to tier 3 - $5/tile", "", rc, C::RESIDENTIAL);
+        add(TOOL_RES_COTTAGES, "SUBURBAN COTTAGES", "Placed, fixed tier 1", "", rc, C::RESIDENTIAL);
+        add(TOOL_RES_APARTMENTS, "BRICK APARTMENTS", "Placed, fixed tier 2", "", rc, C::RESIDENTIAL);
+        add(TOOL_RES_TOWER, "LUXURY HIGHRISE", "Placed, fixed tier 3", "", rc, C::RESIDENTIAL);
 
-        add(TOOL_COM_GROCERY, "CORNER GROCERY", "2x2 shops - Tier 1", "C", sf::Color(70, 160, 235), C::COMMERCIAL);
-        add(TOOL_COM_PLAZA, "SHOPPING PLAZA", "2x2 shops - Tier 2", "", sf::Color(70, 160, 235), C::COMMERCIAL);
-        add(TOOL_COM_TOWER, "CORPORATE TOWER", "2x2 offices - Tier 3", "", sf::Color(70, 160, 235), C::COMMERCIAL);
+        add(TOOL_ZONE_C_LOW, "LOW DENSITY", "Zone: shops, tier 1 - $5/tile", "C", cc, C::COMMERCIAL);
+        add(TOOL_ZONE_C_MED, "MEDIUM DENSITY", "Zone: grows to tier 2 - $5/tile", "", cc, C::COMMERCIAL);
+        add(TOOL_ZONE_C_HIGH, "HIGH DENSITY", "Zone: grows to tier 3 - $5/tile", "", cc, C::COMMERCIAL);
+        add(TOOL_COM_GROCERY, "CORNER GROCERY", "Placed, fixed tier 1", "", cc, C::COMMERCIAL);
+        add(TOOL_COM_PLAZA, "SHOPPING PLAZA", "Placed, fixed tier 2", "", cc, C::COMMERCIAL);
+        add(TOOL_COM_TOWER, "CORPORATE TOWER", "Placed, fixed tier 3", "", cc, C::COMMERCIAL);
 
-        add(TOOL_IND_WORKSHOP, "SCRAP WORKSHOP", "2x2 industry - Tier 1", "I", sf::Color(235, 140, 50), C::INDUSTRIAL);
-        add(TOOL_IND_FACTORY, "FACTORY PLANT", "2x2 industry - Tier 2", "", sf::Color(235, 140, 50), C::INDUSTRIAL);
-        add(TOOL_IND_TECH, "CLEAN-FAB HUB", "2x2 industry - Tier 3", "", sf::Color(235, 140, 50), C::INDUSTRIAL);
+        add(TOOL_ZONE_I_LOW, "LOW DENSITY", "Zone: industry, tier 1 - $5/tile", "I", ic, C::INDUSTRIAL);
+        add(TOOL_ZONE_I_MED, "MEDIUM DENSITY", "Zone: grows to tier 2 - $5/tile", "", ic, C::INDUSTRIAL);
+        add(TOOL_ZONE_I_HIGH, "HIGH DENSITY", "Zone: grows to tier 3 - $5/tile", "", ic, C::INDUSTRIAL);
+        add(TOOL_IND_WORKSHOP, "SCRAP WORKSHOP", "Placed, fixed tier 1", "", ic, C::INDUSTRIAL);
+        add(TOOL_IND_FACTORY, "FACTORY PLANT", "Placed, fixed tier 2", "", ic, C::INDUSTRIAL);
+        add(TOOL_IND_TECH, "CLEAN-FAB HUB", "Placed, fixed tier 3", "", ic, C::INDUSTRIAL);
         add(TOOL_FARM, "FARMS", "Barn & silo - best on rich soil", "F", sf::Color(150, 205, 90), C::INDUSTRIAL);
         add(TOOL_FARM_WINDMILL, "WINDMILL FARM", "Windmill - best on rich soil", "", sf::Color(150, 205, 90), C::INDUSTRIAL);
+        add(TOOL_MINE, "MINE", "30 jobs on a coal / iron / stone deposit", "", sf::Color(150, 140, 130), C::INDUSTRIAL);
 
         add(TOOL_SCHOOL, "ELEMENTARY SCHOOL", "Education r5 - $25/day", "1", sf::Color(235, 87, 72), C::CIVICS);
         add(TOOL_CHURCH, "COMMUNITY CHURCH", "Faith r4 - $20/day", "2", sf::Color(170, 120, 220), C::CIVICS);
         add(TOOL_PARK, "NATURE PARK", "Health r4 - $10/day", "3", sf::Color(72, 200, 110), C::CIVICS);
         add(TOOL_HARBOUR, "TRADE HARBOUR", "Port jobs - $40/day", "H", sf::Color(64, 160, 230), C::CIVICS);
+        add(TOOL_POLICE, "POLICE STATION", "Safety r7 - $15/day", "", sf::Color(70, 110, 220), C::CIVICS);
+        add(TOOL_FIRE_STATION, "FIRE STATION", "Stops fires r7 - $15/day", "", sf::Color(230, 70, 50), C::CIVICS);
+        add(TOOL_CLINIC, "CLINIC", "Health r7 - $20/day", "", sf::Color(235, 235, 240), C::CIVICS);
 
-        add(TOOL_ROAD, "DIRT ROAD", "1x1 - $1/day - drag", "Space", sf::Color(190, 196, 204), C::INFRASTRUCTURE);
+        add(TOOL_ROAD, "DIRT ROAD", "40 cars/day - $1/day - drag", "Space", sf::Color(190, 196, 204), C::INFRASTRUCTURE);
+        add(TOOL_ROAD_ASPHALT, "ASPHALT ROAD", "120 cars/day - $3/day - upgrades", "", sf::Color(150, 156, 168), C::INFRASTRUCTURE);
+        add(TOOL_ROAD_AVENUE, "AVENUE", "300 cars/day - $6/day - upgrades", "", sf::Color(226, 196, 70), C::INFRASTRUCTURE);
+        add(TOOL_ROUNDABOUT, "ROUNDABOUT", "Junction capacity x2 - $2/day", "", sf::Color(110, 190, 120), C::INFRASTRUCTURE);
         add(TOOL_WATER, "WATER BODY", "1x1 - drag to fill", "W", sf::Color(64, 140, 220), C::INFRASTRUCTURE);
         add(TOOL_BULLDOZE, "DEMOLISH", "Clear tiles - drag", "X", sf::Color(235, 87, 72), C::INFRASTRUCTURE);
+        add(TOOL_DEZONE, "DEZONE", "Remove zones - free - drag", "", sf::Color(200, 120, 90), C::INFRASTRUCTURE);
+        add(TOOL_BUS_DEPOT, "BUS DEPOT", "30% fewer cars r8 - $15/day", "", sf::Color(240, 190, 50), C::INFRASTRUCTURE);
+
+        const sf::Color power(245, 200, 60), water(64, 160, 230);
+        add(TOOL_POWER_COAL, "COAL PLANT", "400 power, pollutes - $25/day", "U", power, C::UTILITIES);
+        add(TOOL_POWER_WIND, "WIND TURBINES", "60 power, clean - $3/day", "", power, C::UTILITIES);
+        add(TOOL_POWER_SOLAR, "SOLAR FARM", "120 power, less in winter", "", power, C::UTILITIES);
+        add(TOOL_TRANSFORMER, "TRANSFORMER", "Delivers 150 power - $4/day", "", power, C::UTILITIES);
+        add(TOOL_POWER_LINE, "POWER LINE", "$8 per tile - drag", "", power, C::UTILITIES);
+        add(TOOL_WATER_WELL, "WATER WELL", "80 clean water - $1/day", "", water, C::UTILITIES);
+        add(TOOL_WATER_PUMP, "UNDERGROUND PUMP", "400 raw water - $12/day", "", water, C::UTILITIES);
+        add(TOOL_WATER_TREATMENT, "WATER TREATMENT", "Cleans 400 raw - $18/day", "", water, C::UTILITIES);
+        add(TOOL_WATER_TOWER, "WATER TOWER", "Stores 300 water - $5/day", "", water, C::UTILITIES);
+        add(TOOL_WATER_PIPE, "WATER PIPE", "Underground, $6 per tile - drag", "", water, C::UTILITIES);
+        const sf::Color waste(150, 130, 90);
+        add(TOOL_LANDFILL, "LANDFILL", "Stores 15,000 garbage - $8/day", "", waste, C::WASTE);
+        add(TOOL_INCINERATOR, "INCINERATOR", "Burns 200/day, makes power - pollutes", "", waste, C::WASTE);
+        add(TOOL_RECYCLING, "RECYCLING CENTRE", "Recycles 120/day cleanly - $22/day", "", waste, C::WASTE);
+        add(TOOL_SEWAGE_OUTFLOW, "SEWAGE OUTFLOW", "300 sewage into water - pollutes", "", sf::Color(120, 110, 80), C::WASTE);
+        add(TOOL_SEWAGE_PLANT, "SEWAGE TREATMENT", "Treats 300 sewage cleanly - $12/day", "", sf::Color(120, 110, 80), C::WASTE);
     }
 
     // ---- state ----
@@ -246,19 +392,34 @@ public:
         const CategoryTab* t = tabFor(c);
         return t ? t->bounds : sf::FloatRect();
     }
+    // Cards stack in one column; a category too tall for the window (above
+    // the tool pill) wraps into two columns
+    size_t flyoutColumns(size_t n) const {
+        float room = windowH - SIDE_Y - FLY_HEADER - PILL_H - 24.f;
+        size_t fit = static_cast<size_t>(std::max(1.f, std::floor(room / (CARD_H + CARD_GAP))));
+        return n > fit ? 2 : 1;
+    }
+    size_t flyoutRows(size_t n) const {
+        size_t cols = flyoutColumns(n);
+        return (n + cols - 1) / cols;
+    }
     sf::FloatRect flyoutBounds() const {
         size_t n = toolsIn(activeCategory).size();
-        float h = FLY_HEADER + static_cast<float>(n) * (CARD_H + CARD_GAP) + 4.f;
-        return sf::FloatRect(FLY_X, SIDE_Y, FLY_W, h);
+        float h = FLY_HEADER + static_cast<float>(flyoutRows(n)) * (CARD_H + CARD_GAP) + 4.f;
+        float w = static_cast<float>(flyoutColumns(n)) * (FLY_W - 8.f) + 8.f;
+        return sf::FloatRect(FLY_X, SIDE_Y, w, h);
+    }
+    sf::FloatRect cardBoundsIn(size_t i, size_t n) const {
+        size_t rows = flyoutRows(n);
+        float col = static_cast<float>(i / rows), row = static_cast<float>(i % rows);
+        return sf::FloatRect(FLY_X + 8.f + col * (FLY_W - 8.f), SIDE_Y + FLY_HEADER + row * (CARD_H + CARD_GAP), FLY_W - 16.f, CARD_H);
     }
     // Card for the i-th tool of the open category
-    sf::FloatRect cardBounds(size_t i) const {
-        return sf::FloatRect(FLY_X + 8.f, SIDE_Y + FLY_HEADER + static_cast<float>(i) * (CARD_H + CARD_GAP), FLY_W - 16.f, CARD_H);
-    }
+    sf::FloatRect cardBounds(size_t i) const { return cardBoundsIn(i, toolsIn(activeCategory).size()); }
     sf::FloatRect cardBoundsFor(BuildTool tool) const {
         auto list = toolsIn(categoryOf(tool));
         for (size_t i = 0; i < list.size(); i++)
-            if (list[i]->tool == tool) return cardBounds(i);
+            if (list[i]->tool == tool) return cardBoundsIn(i, list.size());
         return sf::FloatRect();
     }
     sf::FloatRect pillBounds() const {
@@ -401,9 +562,11 @@ public:
             else thumbnail(window, key, sf::FloatRect(well.left + 2.f, well.top + 2.f, well.width - 4.f, well.height - 4.f));
 
             std::string name = item ? titleCase(item->title) : "";
-            text(window, "Placing", pb.left + 58.f, pb.top + 8.f, 10, TEXT_DIM);
+            text(window, pillNote.empty() ? std::string("Placing") : "Placing  -  " + pillNote, pb.left + 58.f, pb.top + 8.f, 10,
+                 pillNote.empty() ? TEXT_DIM : sf::Color(120, 190, 245));
             text(window, name, pb.left + 58.f, pb.top + 22.f, 13, TEXT, true);
-            std::string price = (currentTool == TOOL_BULLDOZE) ? "$5+" : formatMoney(toolCost(currentTool));
+            std::string price = dragCostPreview >= 0 ? formatMoney(dragCostPreview)
+                              : (currentTool == TOOL_BULLDOZE) ? "$5+" : formatMoney(toolCost(currentTool));
             textRight(window, price, pb.left + pb.width - 48.f, pb.top + 22.f, 12, GOOD, true);
 
             sf::FloatRect xb = pillCloseBounds();

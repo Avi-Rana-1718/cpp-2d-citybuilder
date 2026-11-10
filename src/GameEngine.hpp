@@ -52,8 +52,18 @@ GameEngine::GameEngine() {
     assets.addFont("../assets/Hack.ttf");
     assets.addTexture("grass", "grass.png");
     assets.addTexture("player", "player.png");
-    assets.addTexture("road", "road.png");
-    assets.addTexture("road-mid", "road-mid.png");
+    // Roads (tools/gen_road_sprites.py): 16-frame autotile sheets per tier
+    for (const char* name : {"road_dirt", "road_asphalt", "road_avenue", "roundabout", "road_bridge",
+                             "road_dirt_icon", "road_asphalt_icon", "road_avenue_icon", "roundabout_icon"}) {
+        assets.addTexture(name, std::string(name) + ".png");
+    }
+    // Traffic cars: car_<model>_<heading>
+    for (const char* model : {"car", "car_sedan", "car_coupe", "car_taxi", "car_van", "bus"}) {
+        for (const char* dir : {"ne", "se", "sw", "nw"}) {
+            std::string key = std::string(model) + "_" + dir;
+            assets.addTexture(key, key + ".png");
+        }
+    }
     assets.addTexture("residental", "residental.png");
     assets.addTexture("commercial", "commercial.png");
     assets.addTexture("industrial", "industrial.png");
@@ -62,6 +72,13 @@ GameEngine::GameEngine() {
     assets.addTexture("church", "church.png");
     assets.addTexture("park", "park.png");
     assets.addTexture("harbour", "harbour.png");
+    // Power & water buildings (tools/gen_utility_sprites.py)
+    for (const char* name : {"util_coal", "util_wind", "util_solar", "util_transformer",
+                             "util_well", "util_pump", "util_treatment", "util_tower",
+                             "svc_police", "svc_fire", "svc_clinic", "svc_landfill", "svc_mine", "svc_bus",
+                             "util_outflow", "util_sewage", "svc_incinerator", "svc_recycling"}) {
+        assets.addTexture(name, std::string(name) + ".png");
+    }
     assets.addTexture("water", "water.png");
 
     // Natural terrain
@@ -74,7 +91,8 @@ GameEngine::GameEngine() {
     const char* uiIcons[] = {
         "inspect", "residential", "commercial", "industrial", "civic", "infrastructure", "road", "bulldoze",
         "coin", "people", "smile", "season_spring", "season_summer", "season_autumn", "season_winter",
-        "view_normal", "view_fertility", "view_water", "view_deposits", "warning", "star",
+        "view_normal", "view_fertility", "view_water", "view_deposits", "view_traffic", "warning", "star",
+        "utilities", "view_power", "view_tap", "no_power", "no_water", "power_line", "water_pipe", "view_land", "waste",
         "speed_pause", "speed_1", "speed_2", "speed_4"};
     for (const char* name : uiIcons) {
         assets.addTexture(std::string("ui_") + name, std::string("ui/") + name + ".png");
@@ -152,6 +170,9 @@ void GameEngine::run() {
                                 benchFrames, 1000.f * benchMeasured / benchFrames,
                                 benchFrames / benchMeasured, 1000.f * benchWorst, benchWorstFrame, benchWorstAt);
                     std::fflush(stdout);
+                    if (!savePath.empty()) {
+                        if (Play_Scene* ps = dynamic_cast<Play_Scene*>(currentScene)) ps->saveCity(savePath);
+                    }
                     if (!benchShot.empty()) {
                         sf::Texture shot;
                         shot.create(_window.getSize().x, _window.getSize().y);
@@ -173,6 +194,7 @@ void GameEngine::run() {
 
         while(_window.pollEvent(_events)) {
             if(_events.type == sf::Event::Closed) {
+                currentScene->onClose();
                 isRunning = false;
                 _window.close();
             } else if (_events.type == sf::Event::Resized) {

@@ -16,7 +16,9 @@ int main(int argc, char** argv)
         else if (arg == "--show") forceShow = true;
         else if (arg == "--bench-city") benchCity = true;
         else if (arg == "--bench-town") benchTown = true;
+        else if (arg == "--starter") starterCity = true;
         else if (arg == "--budget") startBudget = true;
+        else if (arg == "--messages") startLog = true;
     }
 
     // --seed N generates a reproducible world; omitted or 0 = random
@@ -38,6 +40,10 @@ int main(int argc, char** argv)
         } else if (std::string(argv[i]) == "--inspect" && i + 2 < argc) {
             startInspectX = std::atoi(argv[i + 1]);
             startInspectY = std::atoi(argv[i + 2]);
+        } else if (std::string(argv[i]) == "--save") {
+            savePath = argv[i + 1];
+        } else if (std::string(argv[i]) == "--load") {
+            loadPath = argv[i + 1];
         } else if (std::string(argv[i]) == "--fast-forward") {
             fastForwardDays = std::atoi(argv[i + 1]);
         } else if (std::string(argv[i]) == "--size") {
