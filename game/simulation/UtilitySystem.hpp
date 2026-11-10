@@ -324,7 +324,9 @@ private:
                 else if (G.untreatedPool() - G.untreatedUsed >= w) { G.untreatedUsed += w; hasWater = true; dirty = true; }
                 // Waste water back out through the sewers
                 G.sewageDemand += w;
-                if (G.sewageCap - G.sewageUsed >= w) { G.sewageUsed += w; hasSewer = true; }
+                // Sewers count when they take at least half of it
+                const float sewRoom = std::max(0.f, G.sewageCap - G.sewageUsed);
+                if (sewRoom >= 0.5f * w) { G.sewageUsed += std::min(w, sewRoom); hasSewer = true; }
             }
             if (!hasSewer) { unsewered++; if (s == SECTOR_R) homesUnsewered++; }
             if (sewageGrace) hasSewer = true;

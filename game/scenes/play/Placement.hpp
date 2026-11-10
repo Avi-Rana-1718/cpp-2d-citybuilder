@@ -31,6 +31,12 @@ bool Play_Scene::canPlaceTile(int x, int y, BuildTool tool, std::string* outReas
         return false;
     }
 
+    // City ranks unlock tools (normal play only; zones may still grow anything)
+    if (milestonesEnabled && !spawningZoned && toolRank(tool) > cityRank()) {
+        const CityRank& need = CITY_RANKS[std::min(CITY_RANK_COUNT - 1, toolRank(tool))];
+        if (outReason) *outReason = std::string("Unlocks when Chime becomes a ") + need.name + " (" + std::to_string(need.population) + " people)";
+        return false;
+    }
     int cost = spawningZoned ? 0 : getPlacementCost(x, y, tool);
     if (money < cost) {
         if (outReason) *outReason = "Insufficient Funds ($" + std::to_string(cost) + " needed)";
@@ -496,10 +502,15 @@ void Play_Scene::executeMultibuild() {
     std::ostringstream before;
     writeCity(before);
     const int moneyBefore = money;
+    const std::string msgBefore = lastPlacementError;
+    const float timerBefore = placementErrorTimer;
     runMultibuild(tool);
     std::ostringstream after;
     writeCity(after);
+    if (toastIsError && (lastPlacementError != msgBefore || placementErrorTimer > timerBefore)) audio.play("error", 0.7f);
     if (after.str() != before.str()) {
+        audio.play(tool == TOOL_BULLDOZE ? "bulldoze"
+                   : (isRoadTool(tool) || isLineTool(tool) || isZoneTool(tool) || tool == TOOL_DEZONE) ? "road" : "build");
         undoStack.push_back({before.str(), moneyBefore - money});
         if (undoStack.size() > UNDO_LIMIT) undoStack.erase(undoStack.begin());
     }

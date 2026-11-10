@@ -11,7 +11,7 @@ The whole game compiles as **one translation unit**: `main.cpp` includes headers
 ```bash
 cmake -S . -B build -G "MinGW Makefiles"   # configure
 cmake --build build                         # game + tests
-.\build\citybuilder_tests.exe               # all 100 tests must pass
+.\build\citybuilder_tests.exe               # all 107 tests must pass
 .\build\citybuilder.exe                     # play
 ```
 
@@ -33,8 +33,10 @@ The build copies the SFML DLLs and `assets/` into `build/`.
 | `--bench-city` / `--bench-town` | Pre-build a ~650-building grid city / an ~18-building starter town (its two streets are joined and run out to the nearest map edge) |
 | `--starter` | Showcase town: the starter town plus asphalt main street, avenue link, roundabout on a spur junction and the full utility chain (coal plant, transformer, pump, treatment, tower, plus an off-road wind farm on a power line and a well on a pipe), medium-density R and low-density C zones along a NE spur that fill during the warm-up, with a $75k sandbox treasury and 60 days pre-simulated. Prints each utility's tile for `--inspect` |
 | `--load file.sav` / `--save file.sav` | Open a saved city at start-up / save the city when `--bench` ends |
+| `--bench-metro` | A zoned grid city (~1,300-2,000 people) with every utility and service, for late-game balance |
+| `--title`, `--stats` | Open on the title screen / with the statistics panel (screenshots). A plain start (no options at all) opens the title screen |
 | `--fast-forward N` | Simulate N days at start-up, printing money, population, demand and traffic congestion every 30 days (balance testing) |
-| `--menu N`, `--inspect X Y`, `--view N`, `--budget`, `--messages` | Screenshot helpers: open build category N (1-7), select a tile, set the map view (0-7: 4 Traffic, 5 Power, 6 Water, 7 Land value; power / water tools switch to their view automatically), open the budget / the message log |
+| `--menu N`, `--inspect X Y`, `--view N`, `--budget`, `--messages` | Screenshot helpers: open build category N (1-7), select a tile, set the map view (0-8: 4 Traffic, 5 Power, 6 Water, 7 Land value, 8 Services; power / water tools switch to their view automatically), open the budget / the message log |
 
 Typical checks:
 - **Speed:** `citybuilder.exe --seed 42 --bench 5 --bench-city`
@@ -50,7 +52,7 @@ Typical checks:
 | **Left click + drag** | Build; roads / water / demolish drag along a path or area with a live preview. Road drags show build (green), upgrade (yellow), bridge (blue), skipped (grey) and blocked (red) tiles, and the pill shows the drag's total cost |
 | **Right click** | Cancel drag, or return to Inspect |
 | `W A S D` / arrows, `Q E` / `+ -` | Pan (`Shift` faster), zoom 0.4×-3.2× |
-| Hotkeys | `Esc` Inspect (also closes the budget), `R` `C` `I` low-density R/C/I zone, `F` Farm, `1` `2` `3` School/Church/Park, `H` Harbour, `Space` Road, `W` Water (only when no tool is active), `X` Demolish, `U` Power & Water, `O` map view, `B` budget, `F5` save (`city.sav`), `F9` load (`city.sav`, else `autosave.sav`), `Z` undo the last build, `L` message log, `P` pause, `[` `]` slower/faster, `N` new city after bankruptcy |
+| Hotkeys | `Esc` Inspect (also closes the budget), `R` `C` `I` low-density R/C/I zone, `F` Farm, `1` `2` `3` School/Church/Park, `H` Harbour, `Space` Road, `W` Water (only when no tool is active), `X` Demolish, `U` Power & Water, `Esc` (nothing to cancel) pause menu, `G` statistics, `O` map view, `B` budget, `F5` save (`city.sav`), `F9` load (`city.sav`, else `autosave.sav`), `Z` undo the last build, `L` message log, `P` pause, `[` `]` slower/faster, `N` new city after bankruptcy |
 | Top bar | Money chip (click = budget), population + 9 demand bars, happiness, date/season, speed buttons |
 | Top right | Map View toggles (Normal / Fertility / Groundwater / Deposits / Traffic / Power / Water) and the inspect card |
 
@@ -145,7 +147,7 @@ GameEngine (src/GameEngine.hpp)        window, loop, events (close / resize), as
   - **Bankruptcy:** 180 consecutive days below $0. Loans: $10k at 10% over 360 days, max 3.
   - **Outside connection:** an active building whose border roads never reach the map edge (`roadNet.buildingOutside()`) fills at ¼ rate, only to half capacity, and never upgrades.
 - **Zones** (`world[][].zone`, helpers in `WorldData.hpp`): 9 zone tools (R/C/I × Low/Medium/High density, $5/tile, rectangle drag) plus Dezone. `zone = 1 + sector*3 + density`, `zoneMaxTier = density + 1`. `Play_Scene::growZones()` runs daily before the economy: per sector with low-income demand it grows up to `1 + demand/30` (max 3) tier-1 buildings on lots whose 4 footprint tiles share one zone, are empty clear ground without power lines and touch a road (hash-spread, deterministic). Grown buildings get `zoned = true`, `maxTier`; buildings placed from the cards get `fixedTier = true` and `changeTier` skips them (they still fill with demand). Demolishing keeps the zone; bulldozing bare zoned ground or Dezone removes it. Empty zones are drawn in PASS 1b2.
-- **Roads** (`RoadTile`, constants in `EconomyData.hpp`): Dirt / Asphalt / Avenue cost $10 / $30 / $80, upkeep $1 / $3 / $6, capacity 40 / 120 / 300 trips a day, speed 1 / 1.5 / 2. A road tool on a lower tier upgrades in place for the price difference (`getPlacementCost`). `planRoadPath()` classifies every tile of a drag (build / upgrade / bridge / skip / fail) and is shared by the preview and `buildRoadPath()`. Bridges: straight, land to land, at most `BRIDGE_MAX_SPAN` = 8 water tiles, 5× cost, 3× upkeep, named `"Bridge"`, `world[][].terrain` stays `Water`. Roundabouts: $150, +$2/day, only on a land tile with 3+ links.
+- **Roads** (`RoadTile`, constants in `EconomyData.hpp`): Dirt / Asphalt / Avenue cost $10 / $30 / $80, upkeep $1 / $2 / $5, capacity 40 / 120 / 300 trips a day, speed 1 / 1.5 / 2. A road tool on a lower tier upgrades in place for the price difference (`getPlacementCost`). `planRoadPath()` classifies every tile of a drag (build / upgrade / bridge / skip / fail) and is shared by the preview and `buildRoadPath()`. Bridges: straight, land to land, at most `BRIDGE_MAX_SPAN` = 8 water tiles, 5× cost, 3× upkeep, named `"Bridge"`, `world[][].terrain` stays `Water`. Roundabouts: $150, +$2/day, only on a land tile with 3+ links.
 - **TrafficSystem**: once a day each occupied home sends 60% of residents through a Dijkstra search over its road component and fills the nearest jobs (job buildings take up to their population); the rest drive to the nearest map-edge road. Trips add load per tile; congestion = load / capacity, ×0.7 at plain 3+ way junctions, ×1.5 at roundabouts. Homes over 100% lose up to 20 happiness, city jams over 100% cut commercial demand by up to 25. Feeds the Traffic map view and `CarRenderer`.
 - **UtilitySystem** (`UtilitySystem.hpp`, buildings in `UtilityZone.hpp`, constants in `EconomyData.hpp`): utilities travel along *conductors*: every road carries both, power lines (`world[][].lines & LINE_POWER`, overground, $8/tile) carry power and pipes (`LINE_PIPE`, underground, also under roads and buildings, $6/tile) carry water; lines cost $1/day per 10 tiles. Edge-sharing conductors form networks; a building joins every network touching its footprint or border, so one building touching two networks merges them. Power and water have separate grids (`powerGrids` / `waterGrids`). Utility buildings need no road (`isActive` is always true); `UtilityZone::linked` / `noTransformer` drive the warning icon, inspect status and placement toast.
   - **Power:** coal (400 MW, ×1.25 on a coal deposit, pollution r5), wind (60 MW), solar (120 MW × season: summer 1.2, autumn 0.8, winter 0.5). Consumers only get power through **transformers** on their grid: a grid delivers min(plant output, 150 MW × transformers) to any building on it, with no distance limit. A plant without a transformer powers nothing.
@@ -159,6 +161,13 @@ GameEngine (src/GameEngine.hpp)        window, loop, events (close / resize), as
 - **Buses**: `CarRenderer` keeps `BUSES_PER_DEPOT` yellow buses (model `BUS`) driving out from each active depot.
 - **Undo** also covers tax slider changes (`UndoStep::taxOnly`).
 - **Save / load** (`game/scenes/SaveGame.hpp`): plain text, `CHIMESAVE 1`: seed / money / spawn, clock, taxes, economy, loans, every tile's `TileData`, roads (tier, bridge axis, roundabout) and buildings (name, tier, variant, population, capacity, fixedTier, zoned, maxTier, happiness, kind, stored). Everything derived is rebuilt on load. `readCity(in, keepTime)` with `keepTime` is how **undo** works: each drag action snapshots the city first (`executeMultibuild`, last 10), and undo restores the map but keeps the calendar and refunds what the action cost. Autosave to `autosave.sav` monthly and on close (not in benchmarks / headless). `loadError` says why a load failed.
+- **Menus** (`play/Menu.hpp`): title screen (Continue / New City / Load / Settings / Quit; the map orbits behind it), pause menu on `Esc`, New City (difficulty = starting money $50k / $20k / $10k, seed reroll, sandbox = the starter town with everything unlocked), Settings (sound / ambience volume, camera speed, autosave, tips) saved to `settings.cfg` (`src/Settings.hpp`). While a menu is open the city is frozen (`updateMenu` replaces `update`).
+- **City ranks** (`CITY_RANKS`, `toolRank()` in `Toolbar.hpp`): Settlement → Village 300 → Town 1,000 → City 2,500 → Metropolis 5,000 by best population ever; each pays a bonus and unlocks tools (asphalt, medium zones, police, clinic... at Village; avenues, high density, coal, incinerator, mines, harbours at Town; recycling at City). Only in normal play (`milestonesEnabled`; sandbox, dev runs and tests have everything). Locked cards show what unlocks them. Saved (save version 2 adds a `progress` line).
+- **Tips** (`computeTip()`): the first thing a new city is missing (road, zones, jobs, power, water, garbage, fire station, school, money), shown above the toast; `x` turns tips off.
+- **Trade** (`TradeSystem.hpp`): daily goods (industry by tier, mines) and food (farms) made vs used (residents, shops); the surplus is exported and shortfalls imported (+30%), both through the trade capacity (200 per road tile leaving the map, ×2 asphalt / ×3 avenue, + 500 per harbour). Unimportable needs cut commercial demand, unshippable goods cut industrial demand; income / cost appear in the budget.
+- **Statistics** (`play/Stats.hpp`, `G`): 360-day history of population, money / net, happiness, demand and trade, plus today's trade breakdown.
+- **Audio** (`src/Audio.hpp`, sounds from `tools/gen_sounds.py`): clicks, build / road / bulldoze sounds once per action, error buzz, alert on warnings, milestone fanfare, a city ambience loop and a fire crackle while something burns. Never initialised in tests or headless runs.
+- **Daily work is staggered**: the economy runs on the day boundary, services / fires / land value / tips on the next frame (`servicesDue`), and the commute model from midday a slice of 40 homes per frame (`TrafficSystem::begin / step`); `update()` still runs a whole day at once for tests and `--fast-forward`.
 - **Messages**: `notify()` = toast + entry in the message log (`L` or the bottom-right chip): shortages, debt, fires, saves.
 - **HappinessSystem**: coverage maps (education R5, church R4, park R4, pollution R3, commerce R3) and per-home happiness. Weights: jobs 0.25, education 0.20, health 0.20, safety 0.15, tax 0.20, minus the traffic penalty. It does **not** change tiers; the economy does.
 - **GroundRenderer**: builds a texture atlas at runtime and one vertex array for every ground tile. It is rebuilt only after `markDirty()` or a `SeasonLook` change. Draws a snow layer, and forest / rock sprites in the depth-sorted pass.
@@ -212,7 +221,7 @@ GameEngine (src/GameEngine.hpp)        window, loop, events (close / resize), as
 
 ---
 
-## Tests (`tests/test_main.cpp`, 100)
+## Tests (`tests/test_main.cpp`, 107)
 
 A small custom framework (`tests/test_framework.hpp`). Areas covered:
 
@@ -220,6 +229,7 @@ A small custom framework (`tests/test_framework.hpp`). Areas covered:
 - **Build menu**: layout, flyout click flow, tool names, `toolCost()` consistency.
 - **Placement & roads**: road / water / forest / rock blocking, edge-sharing road access, on-change re-checks, all 16 autotile masks, edge-connected drag paths, tier upgrades, bridge rules, roundabouts, outside connection, demolition restoring terrain.
 - **Traffic**: commute routing and loads, capacity by tier, the happiness penalty, cars staying on roads.
+- **Menus / ranks / trade / stats**: settings save + clamp, rank unlocks and rewards, trade exports / imports / shortages, partial garbage pickup, resumable traffic = full day, capped history, new city flow.
 - **Waste / sewage / buses**: disposal order and landfill filling up, incinerator power, sewage grace / plants / outflow placement / health, tax undo, buses leaving depots.
 - **Save / undo / services**: save round trip (and bad files change nothing), undo refunds, coverage and garbage by road network, fires burning down / put out, mines (deposit rule, depletion, tax) and buses (fewer trips), land value formula and its upgrade / growth gates.
 - **Zones**: painting / dezoning, growth with demand and road, no growth on bad lots, density caps upgrades, placed buildings keep their tier, demolished lots regrow.

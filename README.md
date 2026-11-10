@@ -21,6 +21,9 @@ Every game starts on a procedurally generated 64×64 island. Build roads, homes,
 - **City services:** police (safety), fire stations (fires can break out and spread in bigger towns), clinics (health), bus depots (fewer cars, with buses on the roads) and mines on coal / iron / stone deposits.
 - **Waste and sewage:** garbage has to go somewhere: landfills fill up for good, incinerators burn it (polluting, but they make power) and recycling centres handle it cleanly. Waste water needs a sewage outflow into a lake or the sea (polluting) or a treatment plant.
 - **Land value:** parks, schools, shops, services and water raise it; pollution and jams lower it. Buildings need it to upgrade.
+- **Menus and progression:** a title screen, pause menu, difficulty choice and settings. The city grows from Settlement to Metropolis; each rank pays a bonus and unlocks new buildings, and tips guide a new mayor.
+- **Trade:** industry and farms produce goods and food; the surplus is exported over roads leaving the map and through harbours, shortages are imported.
+- **Statistics and sound:** `G` shows graphs of population, money, happiness, demand and trade; synthesised sound effects and city ambience.
 - **Save, load and undo:** `F5` saves, `F9` loads, the city autosaves monthly and on exit, and `Z` undoes the last build. `L` opens the message log.
 - **Interface:** sidebar build menu with building thumbnails and prices, status bar, budget panel, inspect card, map views for fertility, groundwater, deposits, traffic, and power and water (showing every line and pipe). The window can be resized freely.
 
@@ -39,7 +42,7 @@ cmake -S . -B build -G "MinGW Makefiles"
 # Build the game and the test runner
 cmake --build build
 
-# Run the tests (100)
+# Run the tests (107)
 .\build\citybuilder_tests.exe
 # or: ctest --test-dir build --output-on-failure
 
@@ -77,6 +80,8 @@ The build copies the SFML DLLs, the font and all sprites into `build/`.
 | `F5` / `F9` | Save / load (`city.sav`; the autosave if there is none) |
 | `Z` | Undo the last build |
 | `L` | Message log |
+| `G` | Statistics |
+| `Esc` | Pause menu (when no tool is selected) |
 | `N` | Found a new city after bankruptcy |
 
 ### Launch options
@@ -107,7 +112,7 @@ cpp-2d-citybuilder/
 │   └── ui/                  # UI kit, build menu
 ├── assets/sprites/          # Pixel-art sprites and UI icons
 ├── tools/                   # Python sprite / icon generators
-├── tests/                   # Test framework and 100 tests
+├── tests/                   # Test framework and 107 tests
 └── docs/                    # Gameplay and simulation guide
 ```
 

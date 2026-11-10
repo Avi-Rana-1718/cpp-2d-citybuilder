@@ -48,6 +48,7 @@ static void clearTestGrid() {
     traffic.reset();
     utilities.reset();
     services.reset();
+    trade.reset();
 }
 
 // Dirt road from the west border tile of a 2x2 building rooted at (x, y)
@@ -162,7 +163,7 @@ TEST_CASE(Test_HUD_AdaptsToWindowSize) {
     scene.onResize(1920, 1020);
     ASSERT_EQ(screenW, 1920);
     ASSERT_EQ(screenH, 1020);
-    ASSERT_NEAR(scene.viewPanelBounds().left, 1920.f - 404.f, 0.01f);           // top-right
+    ASSERT_NEAR(scene.viewPanelBounds().left, 1920.f - 452.f, 0.01f);           // top-right
     ASSERT_NEAR(tb.pillBounds().top + tb.pillBounds().height, 1020.f - 12.f, 0.01f); // bottom-left
     sf::FloatRect budget = scene.budgetBounds();
     ASSERT_NEAR(budget.left + budget.width / 2.f, 960.f, 0.5f);                  // centred
@@ -3185,11 +3186,10 @@ TEST_CASE(Test_Waste_DisposalOrderAndLandfillFills) {
     (void)rec;
 
     // A nearly full landfill can't take a whole day's load; once full it takes nothing
-    fill->stored = LANDFILL_SPACE - 50.f;
+    fill->stored = LANDFILL_SPACE - 40.f;                     // 40 of 100: under half
     services.update();
     ASSERT_FALSE(services.garbageOk(4, 11));
     home->population = 400;                                   // 40 a day fits
-    fill->stored = LANDFILL_SPACE - 40.f;
     services.update();
     ASSERT_TRUE(services.garbageOk(4, 11));
     services.runDay(2, 0);
@@ -3282,6 +3282,164 @@ TEST_CASE(Test_Cars_BusesLeaveDepots) {
         ASSERT_TRUE(RoadTile::at(c.x, c.y) != NULL);
     }
     ASSERT_TRUE(buses >= 1 && buses <= BUSES_PER_DEPOT);
+    clearTestGrid();
+}
+
+// -------------------------------------------------------------
+// Settings, ranks, trade, stats, menus, resumable traffic
+// -------------------------------------------------------------
+TEST_CASE(Test_Settings_SaveLoadAndClamp) {
+    GameSettings a;
+    a.sfxVolume = 30;
+    a.ambientVolume = 150;          // clamped to 100 on load
+    a.cameraSpeed = 1.5f;
+    a.autosave = false;
+    a.tips = false;
+    a.difficulty = 2;
+    a.save("test_settings.cfg");
+    GameSettings b;
+    b.load("test_settings.cfg");
+    std::remove("test_settings.cfg");
+    ASSERT_EQ(b.sfxVolume, 30);
+    ASSERT_EQ(b.ambientVolume, 100);
+    ASSERT_NEAR(b.cameraSpeed, 1.5f, 0.001f);
+    ASSERT_FALSE(b.autosave);
+    ASSERT_FALSE(b.tips);
+    ASSERT_EQ(b.difficulty, 2);
+    ASSERT_EQ(GameSettings::startingMoneyFor(0), 50000);
+    ASSERT_EQ(GameSettings::startingMoneyFor(2), 10000);
+}
+
+TEST_CASE(Test_Milestones_UnlockAndReward) {
+    clearTestGrid();
+    ScopedCoutSilence silence;
+    Play_Scene scene;
+    scene.milestonesEnabled = true;
+    money = 10000;
+    utilRoadRow(10, 0, 30);
+    std::string reason;
+    ASSERT_FALSE(scene.canPlaceTile(5, 5, TOOL_ROAD_AVENUE, &reason));
+    ASSERT_EQ(reason, std::string("Unlocks when Chime becomes a Town (1000 people)"));
+    ASSERT_TRUE(scene.canPlaceTile(5, 5, TOOL_ROAD));
+
+    townPopulation[0] = 1200;
+    scene.checkMilestones();
+    ASSERT_EQ(scene.cityRank(), 2);                                      // Village and Town in one go
+    ASSERT_EQ(money, 10000 + CITY_RANKS[1].reward + CITY_RANKS[2].reward);
+    ASSERT_TRUE(scene.canPlaceTile(5, 5, TOOL_ROAD_AVENUE));
+    ASSERT_FALSE(scene.canPlaceTile(4, 11, TOOL_RECYCLING));             // a City building
+
+    townPopulation[0] = 100;                                             // ranks never go back down
+    scene.checkMilestones();
+    ASSERT_EQ(scene.cityRank(), 2);
+    scene.milestonesEnabled = false;                                     // sandbox / dev runs: all unlocked
+    ASSERT_TRUE(scene.canPlaceTile(4, 11, TOOL_RECYCLING));
+    townPopulation[0] = 0;
+    clearTestGrid();
+}
+
+TEST_CASE(Test_Trade_ExportsImportsAndShortages) {
+    clearTestGrid();
+    ScopedCoutSilence silence;
+    utilRoadRow(10, 0, 30);                                              // (0, 10) leaves the map
+    IndustrialZone* plant = new IndustrialZone(20, 11, 1, 1);
+    entities[20][11] = plant;
+    plant->checkValid();
+    plant->population = 100;                                             // 100 goods
+    utilHome(4, 11, 200);                                                // uses 20 goods, 30 food
+    roadNet.rebuild();
+    trade.runDay();
+    ASSERT_NEAR(trade.capacity, TRADE_PER_EDGE_ROAD, 0.01f);
+    ASSERT_NEAR(trade.goodsExported, 80.f, 0.01f);
+    ASSERT_NEAR(trade.foodImported, 30.f, 0.01f);
+    ASSERT_NEAR(trade.exportIncome, 80.f * GOODS_PRICE, 0.01f);
+    ASSERT_NEAR(trade.importCost, 30.f * FOOD_PRICE * IMPORT_MARKUP, 0.01f);
+    ASSERT_NEAR(trade.shortage, 0.f, 0.001f);
+
+    EconomySystem econ;
+    DayReport rep = econ.settle();
+    ASSERT_NEAR(rep.tradeIncome, trade.exportIncome, 0.01f);
+    ASSERT_NEAR(rep.tradeCost, trade.importCost, 0.01f);
+
+    // Cut the road to the edge: nothing goes in or out
+    delete entities[0][10]; entities[0][10] = NULL;
+    roadNet.rebuild();
+    trade.runDay();
+    ASSERT_NEAR(trade.capacity, 0.f, 0.01f);
+    ASSERT_NEAR(trade.glut, 0.8f, 0.001f);                               // 80 of 100 goods stuck
+    ASSERT_NEAR(trade.shortage, 0.6f, 0.001f);                           // 30 of 50 needs unmet
+    clearTestGrid();
+}
+
+TEST_CASE(Test_Waste_PartialPickupCounts) {
+    clearTestGrid();
+    ScopedCoutSilence silence;
+    utilRoadRow(10, 0, 40);
+    utilHome(4, 11, 1000);                                               // 100 garbage a day
+    ServiceZone* fill = svcBuilding(20, 11, SERVICE_LANDFILL);
+    fill->stored = LANDFILL_SPACE - 60.f;                                // room for 60
+    roadNet.rebuild();
+    services.update();
+    ASSERT_TRUE(services.garbageOk(4, 11));                              // more than half taken
+    ASSERT_NEAR(services.garbageCollected, 60.f, 0.01f);
+    clearTestGrid();
+}
+
+TEST_CASE(Test_Traffic_ResumableMatchesFullDay) {
+    clearTestGrid();
+    ScopedCoutSilence silence;
+    utilRoadRow(10, 0, 30);
+    for (int x = 0; x <= 30; x++) RoadTile::at(x, 10)->check();
+    for (int x : {2, 6, 10}) utilHome(x, 11, 50);
+    CommericalZone* shop = new CommericalZone(24, 11, 1, 1);
+    entities[24][11] = shop;
+    shop->checkValid();
+    shop->population = 40;
+    traffic.update();
+    const int trips = traffic.totalTrips, outside = traffic.outsideTrips;
+    const float load = traffic.load[15][10];
+    ASSERT_TRUE(trips > 0 && outside > 0);                              // 90 commuters, 40 jobs
+
+    traffic.reset();
+    traffic.begin();
+    int steps = 0;
+    while (!traffic.step(1)) steps++;                                    // one home per call
+    ASSERT_EQ(steps, 2);
+    ASSERT_FALSE(traffic.inProgress());
+    ASSERT_EQ(traffic.totalTrips, trips);
+    ASSERT_EQ(traffic.outsideTrips, outside);
+    ASSERT_NEAR(traffic.load[15][10], load, 0.001f);
+    clearTestGrid();
+}
+
+TEST_CASE(Test_Stats_HistoryIsCapped) {
+    clearTestGrid();
+    ScopedCoutSilence silence;
+    Play_Scene scene;
+    DayReport rep;
+    rep.net = 7;
+    for (int d = 0; d < 400; d++) scene.recordHistory(rep);
+    ASSERT_EQ(scene.history.size(), Play_Scene::HISTORY_DAYS);
+    ASSERT_EQ(scene.history.back().net, 7);
+    clearTestGrid();
+}
+
+TEST_CASE(Test_Menu_NewCityFlow) {
+    clearTestGrid();
+    ScopedCoutSilence silence;
+    Play_Scene scene;
+    scene.menuPage = Play_Scene::MENU_TITLE;
+    bool hasNew = false;
+    for (const auto& b : scene.menuButtons()) hasNew |= b.id == MB_NEW && b.enabled;
+    ASSERT_TRUE(hasNew);
+    scene.handleMenuClick(MB_NEW);
+    ASSERT_TRUE(scene.menuPage == Play_Scene::MENU_NEW);
+    scene.beginNewCity(1234u, 0, false);
+    ASSERT_TRUE(scene.menuPage == Play_Scene::MENU_NONE);
+    ASSERT_EQ(money, 50000);
+    ASSERT_EQ(static_cast<int>(worldSeed), 1234);
+    ASSERT_TRUE(scene.milestonesEnabled);
+    ASSERT_EQ(scene.cityRank(), 0);
     clearTestGrid();
 }
 

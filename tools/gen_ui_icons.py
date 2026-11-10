@@ -298,6 +298,15 @@ def waste():
     return img
 
 
+def view_services():
+    """Services coverage: a shield with a cross."""
+    img, d = canvas()
+    d.polygon([(8, 1), (14, 3), (13, 10), (8, 15), (3, 10), (2, 3)], fill=(225, 225, 225, 255), outline=INK)
+    d.rectangle((7, 4, 9, 12), fill=(150, 150, 150, 255))
+    d.rectangle((4, 7, 12, 9), fill=(150, 150, 150, 255))
+    return img
+
+
 def warning():
     img, d = canvas()
     d.polygon([(8, 1), (15, 14), (1, 14)], fill=(245, 196, 40, 255), outline=INK)
@@ -343,7 +352,7 @@ ICONS = {
     "view_water": view_water, "view_deposits": view_deposits, "view_traffic": view_traffic,
     "warning": warning, "star": star,
     "utilities": utilities, "view_power": view_power, "view_tap": view_tap,
-    "no_power": no_power, "no_water": no_water, "power_line": power_line, "water_pipe": water_pipe, "view_land": view_land, "waste": waste,
+    "no_power": no_power, "no_water": no_water, "power_line": power_line, "water_pipe": water_pipe, "view_land": view_land, "waste": waste, "view_services": view_services,
     "speed_pause": speed_pause, "speed_1": triangles(1), "speed_2": triangles(2), "speed_4": triangles(3),
 }
 

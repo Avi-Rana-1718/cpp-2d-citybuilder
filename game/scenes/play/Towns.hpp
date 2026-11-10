@@ -292,3 +292,59 @@ bool Play_Scene::placeLinkedUtility(BuildTool tool, int rx, int ry, BuildTool li
     }
     return false;
 }
+
+// --bench-metro: a planned city for balance checks at ~2,000 people. Eight
+// street rows (every 3 tiles) joined by links, the usual road to the map
+// edge, a full set of utilities and services on road-side lots, then
+// zones: medium / high homes, shops and industry on the rest. Growth then
+// comes from the simulation (run it with --fast-forward). Returns the
+// number of zoned tiles.
+int Play_Scene::buildBenchMetro() {
+    money = 100000000;
+    const int x0 = std::max(2, worldSpawnX - 14), x1 = std::min(tileMapW - 4, worldSpawnX + 14);
+    const int y0 = std::max(1, worldSpawnY - 10);
+    const int rows = 8;
+    const int yLast = std::min(tileMapH - 3, y0 + 3 * (rows - 1));
+    for (int i = x0 - 3; i <= x1 + 4; i++)
+        for (int j = y0 - 2; j <= yLast + 3; j++)
+            if (inWorldBounds(i, j) && isNaturalObstacleName(tileKind(i, j)) && tileKind(i, j) != "Water") world[i][j].terrain = Terrain::Grass;
+    ground.markDirty();
+    for (int y = y0; y <= yLast; y += 3) {
+        std::vector<sf::Vector2i> row;
+        for (int x = x0; x <= x1; x++) row.push_back({x, y});
+        buildRoadPath(row, TOOL_ROAD_ASPHALT);
+    }
+    // Join consecutive rows at both ends (edge-connected L paths)
+    for (int y = y0; y + 3 <= yLast; y += 3) {
+        buildRoadPath(roadDragPath({x0, y}, {x0, y + 3}), TOOL_ROAD_ASPHALT);
+        buildRoadPath(roadDragPath({x1, y}, {x1, y + 3}), TOOL_ROAD_ASPHALT);
+    }
+    connectBenchRoads(x0, x1, y0);
+
+    const int cx = (x0 + x1) / 2, cy = (y0 + yLast) / 2;
+    for (BuildTool t : {TOOL_POWER_COAL, TOOL_POWER_COAL, TOOL_TRANSFORMER, TOOL_TRANSFORMER, TOOL_TRANSFORMER, TOOL_TRANSFORMER,
+                        TOOL_TRANSFORMER, TOOL_WATER_PUMP, TOOL_WATER_PUMP, TOOL_WATER_TREATMENT, TOOL_WATER_TREATMENT,
+                        TOOL_WATER_WELL, TOOL_WATER_WELL, TOOL_WATER_TOWER, TOOL_SEWAGE_PLANT, TOOL_SEWAGE_PLANT, TOOL_SEWAGE_PLANT,
+                        TOOL_LANDFILL, TOOL_INCINERATOR})
+        placeNearest(t, x0 + 2, yLast, 10);
+    // More water: pumps spread over the city so they don't drain one spot
+    for (int k = 0; k < 4; k++) placeNearest(TOOL_WATER_PUMP, x0 + 4 + k * 7, y0 + (k % 2) * 6, 6);
+    placeNearest(TOOL_WATER_TREATMENT, x1 - 2, yLast, 10);
+    for (BuildTool t : {TOOL_POWER_COAL, TOOL_TRANSFORMER, TOOL_TRANSFORMER, TOOL_TRANSFORMER}) placeNearest(t, x1 - 3, yLast, 12);
+    for (BuildTool t : {TOOL_SCHOOL, TOOL_SCHOOL, TOOL_SCHOOL, TOOL_POLICE, TOOL_POLICE, TOOL_FIRE_STATION, TOOL_FIRE_STATION,
+                        TOOL_CLINIC, TOOL_CLINIC, TOOL_PARK, TOOL_PARK, TOOL_PARK, TOOL_PARK, TOOL_CHURCH, TOOL_BUS_DEPOT})
+        placeNearest(t, cx, cy, 12);
+
+    // Zones: industry on the last rows (near the plants), shops in the middle row, homes elsewhere
+    int zoned = 0;
+    for (int x = x0 - 1; x <= x1 + 1; x++)
+        for (int y = y0 - 2; y <= yLast + 2; y++) {
+            if (!inWorldBounds(x, y)) continue;
+            // Bottom two rows industry, two rows of shops through the middle, homes elsewhere
+            BuildTool t = y >= yLast - 6 ? TOOL_ZONE_I_MED
+                        : (std::abs(y - cy + 1) <= 3 ? TOOL_ZONE_C_MED : (x < cx ? TOOL_ZONE_R_HIGH : TOOL_ZONE_R_MED));
+            if (canPlaceTile(x, y, t)) { placeTile(x, y, t); zoned++; }
+        }
+    money = 30000;
+    return zoned;
+}

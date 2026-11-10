@@ -21,7 +21,7 @@
 #include <sstream>
 
 inline const char* SAVE_MAGIC = "CHIMESAVE";
-const int SAVE_VERSION = 1;
+const int SAVE_VERSION = 2;   // 2: + progress line
 
 // Builds a 2x2 structure of the given entity name with its three sub tiles.
 // Returns the root, or NULL for an unknown name / blocked spot.
@@ -72,6 +72,7 @@ bool Play_Scene::writeCity(std::ostream& out) {
     out << "loans " << economy.loans.size();
     for (const Loan& l : economy.loans) out << ' ' << l.remainingDays << ' ' << l.dailyPayment;
     out << '\n';
+    out << "progress " << bestPopulation << ' ' << (milestonesEnabled ? 1 : 0) << '\n';
 
     out << "tiles\n";
     for (int i = 0; i < tileMapW; i++) {
@@ -137,6 +138,8 @@ bool Play_Scene::readCity(std::istream& in, bool keepTime) {
     in >> word >> loanCount;
     std::vector<Loan> loans(loanCount);
     for (Loan& l : loans) in >> l.remainingDays >> l.dailyPayment;
+    int best = 0, ranked = 0;
+    if (version >= 2) in >> word >> best >> ranked;   // progress line
     if (!in || loanCount > 100) return loadFail("step 3");
 
     // Tiles go into a scratch copy first, so a broken file leaves the city alone
@@ -190,8 +193,13 @@ bool Play_Scene::readCity(std::istream& in, bool keepTime) {
         economy.dayCounter = dayCounter;
         economy.setCarry(carry);
         economy.loans = loans;
+        bestPopulation = best;
+        rankShown = rankForPopulation(best);
+        milestonesEnabled = version >= 2 ? ranked != 0 : true;
         undoStack.clear();
         notices.clear();
+        history.clear();
+        trade.reset();
         happinessSystem = HappinessSystem();
         lastDailyIncome = 0;
         simAccumulator = 0.f;

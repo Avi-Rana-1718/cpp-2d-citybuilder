@@ -78,8 +78,8 @@ All 2×2 buildings need a land road (any tier, not a bridge deck) on one of the 
 | Nature Park | `3` | $80 | – | – | $10 (always active once built) |
 | Trade Harbour | `H` | $250 | C $$ | 30 port jobs | $40 |
 | Dirt Road | `Space` | $10 / tile | – | 40 trips / day | $1 / tile |
-| Asphalt Road | | $30 / tile | – | 120 trips / day | $3 / tile |
-| Avenue | | $80 / tile | – | 300 trips / day | $6 / tile |
+| Asphalt Road | | $30 / tile | – | 120 trips / day | $2 / tile |
+| Avenue | | $80 / tile | – | 300 trips / day | $5 / tile |
 | Roundabout | | $150 | – | junction ×1.5 | +$2 |
 | Water Body | `W` | $20 / tile | – | – | – |
 | Demolish | `X` | $5 (forest $15, rock $60) | – | – | – |
@@ -102,20 +102,35 @@ All 2×2 buildings need a land road (any tier, not a bridge deck) on one of the 
 - **Density caps the tier:** low-density buildings stay tier 1, medium reach tier 2, high reach tier 3 (upgrades still need a full building, happy residents and demand for the next income level).
 - **Placed buildings:** the building cards under the zones place that exact building. It keeps its tier forever (no upgrade, no downgrade) but still fills only while its income level has demand.
 
+### Ranks and unlocks
+A new city starts as a **Settlement**. The best population it ever reaches decides its rank, and each rank pays a one-off bonus and unlocks buildings:
+
+| Rank | People | Bonus | Unlocks |
+|---|---|---|---|
+| Village | 300 | $5,000 | Asphalt, medium-density zones, placed tier-2 buildings, police, clinic, church, solar, pumps, water treatment & towers, bus depot, sewage outflow |
+| Town | 1,000 | $15,000 | Avenues, roundabouts, high-density zones, placed tier-3 buildings, coal, incinerator, sewage treatment, mines, harbours |
+| City | 2,500 | $30,000 | Recycling centres |
+| Metropolis | 5,000 | $60,000 | - |
+
+Sandbox cities (New City → Sandbox) have everything unlocked.
+
+### Trade
+Industry makes goods (1 / 1.4 / 2 per worker by tier, mines 0.5), farms make food (2 per farmer × soil × season). Residents use 0.1 goods and 0.15 food each, shop workers 0.2 goods. The surplus is **exported** ($0.50 per good, $0.35 per food) and shortfalls **imported** for 30% more, both limited by the **trade capacity**: 200 a day for every dirt road leaving the map (asphalt ×2, avenue ×3) plus 500 per harbour. Needs nobody can import make shops lose customers; goods nobody can ship make industry lose orders. The statistics panel (`G`) shows the breakdown.
+
 ### City services
 | Building | Cost | Upkeep | Does |
 |---|---|---|---|
-| Police station | $400 | $15 | Safety for homes within 7 tiles. From 500 residents, homes without police lose safety |
-| Fire station | $400 | $15 | Puts out fires within 7 tiles the next day and stops new ones there |
-| Clinic | $500 | $20 | Health for homes within 7 tiles |
+| Police station | $400 | $12 | Safety for homes within 7 tiles. From 500 residents, homes without police lose safety |
+| Fire station | $400 | $12 | Puts out fires within 7 tiles the next day and stops new ones there |
+| Clinic | $500 | $15 | Health for homes within 7 tiles |
 | Landfill | $600 | $8 | Stores garbage (up to 300 a day) until 15,000 are used up; a full landfill is done for good. Pollutes radius 3 |
-| Incinerator | $1,400 | $18 | Burns 200 garbage a day and turns it into 100 power on its grid. Pollutes radius 5 |
-| Recycling centre | $1,100 | $22 | Recycles 120 garbage a day, cleanly |
+| Incinerator | $1,400 | $15 | Burns 200 garbage a day and turns it into 100 power on its grid. Pollutes radius 5 |
+| Recycling centre | $1,100 | $20 | Recycles 120 garbage a day, cleanly |
 | Mine | $800 | — | 30 industrial jobs on a coal / iron / stone deposit; pays more on rich deposits and slowly uses them up; boosts industrial demand |
 | Bus depot | $700 | $15 | 30% of commuters within 8 tiles take the bus instead of a car |
 
 - **Garbage:** every occupant makes 0.1 garbage a day. Trucks take it by road to the facilities on the same road network: recycling first, then incinerators, then landfills. Garbage never vanishes on its own; a building no facility can take loses 15 health for its residents (from 150 citizens).
-- **Sewage:** waste water (as much as a building's water use) runs through roads and pipes to a **sewage outflow** ($250, $2/day, must touch water, pollutes radius 4) or a **sewage treatment plant** ($1,200, $12/day), 300 a day each. From 400 citizens, homes without sewers lose 15 health. Both are in the **Waste & Sewage** menu with the garbage buildings.
+- **Sewage:** waste water (as much as a building's water use) runs through roads and pipes to a **sewage outflow** ($250, $2/day, must touch water, pollutes radius 4) or a **sewage treatment plant** ($1,200, $8/day), 300 a day each. From 400 citizens, homes without sewers lose 15 health. Both are in the **Waste & Sewage** menu with the garbage buildings.
 - **Buses:** each bus depot runs 3 yellow buses on the roads around it.
 - **Fires** start only once a town has 300 residents: rarely, at random, in any building except parks, farms, fire stations and utilities. An unchecked fire spreads to nearby buildings and burns its building down after 4 days (the zone stays). The message log (`L`) lists every fire.
 - **Land value** (0-100, Land value map view): 30 + parks, schools, shops, police, clinics and nearby water, minus pollution and jammed roads. A building needs **40** to reach tier 2 and **60** for tier 3; zones grow the richest wanted tier the density and land value allow.
@@ -133,13 +148,13 @@ Utilities travel along **roads, power lines and water pipes**. Every road carrie
 
 | Building | Cost | Upkeep | Does |
 |---|---|---|---|
-| Coal plant | $1,500 | $25 | 400 power, 500 on a coal deposit. Pollutes radius 5 |
+| Coal plant | $1,500 | $20 | 400 power, 500 on a coal deposit. Pollutes radius 5 |
 | Wind turbines | $400 | $3 | 60 power |
 | Solar farm | $800 | $8 | 120 power × season (summer 1.2, autumn 0.8, winter 0.5) |
 | Transformer | $300 | $4 | Delivers up to 150 power to the buildings on its grid |
 | Water well | $150 | $1 | 80 clean water × groundwater (radius 2) |
-| Underground pump | $600 | $12 | 400 raw water × groundwater (radius 4) |
-| Water treatment | $900 | $18 | Cleans 400 raw water. Mild pollution radius 3 |
+| Underground pump | $600 | $8 | 400 raw water × groundwater (radius 4) |
+| Water treatment | $900 | $12 | Cleans 400 raw water. Mild pollution radius 3 |
 | Water tower | $350 | $5 | Stores 300 spare clean water for dry days |
 | Power line | $8 / tile | $1 per 10 tiles | Carries power; blocks buildings, crosses open land |
 | Water pipe | $6 / tile | $1 per 10 tiles | Carries water underground |

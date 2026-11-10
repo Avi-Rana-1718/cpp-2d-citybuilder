@@ -170,6 +170,26 @@ void Play_Scene::renderOverlay(float viewL, float viewR, float viewT, float view
 
             const TileData& td = world[i][j];
             sf::Color col(0, 0, 0, 0);
+            if (overlayMode == 8) {
+                // Services: police blue, fire red, clinic green (mixed where they overlap);
+                // buildings whose garbage nobody collects in brown
+                if (td.terrain == Terrain::Water) continue;
+                Zone* z = dynamic_cast<Zone*>(entities[i][j]);
+                if (z != NULL && z->isSubTile && inWorldBounds(z->rootX, z->rootY)) z = dynamic_cast<Zone*>(entities[z->rootX][z->rootY]);
+                if (z != NULL && ServiceSystem::makesGarbage(z) && !services.garbageOk(z->posX, z->posY)) {
+                    col = sf::Color(120, 90, 50, 210);
+                } else {
+                    const int p = services.policeMap[i][j], f = services.fireMap[i][j], c = services.clinicMap[i][j];
+                    const int m = std::max(p, std::max(f, c));
+                    if (m == 0) col = sf::Color(10, 12, 18, 90);
+                    else col = sf::Color(static_cast<sf::Uint8>(40 + f * 1.9f), static_cast<sf::Uint8>(40 + c * 1.6f),
+                                         static_cast<sf::Uint8>(40 + p * 2.0f), static_cast<sf::Uint8>(60 + m));
+                }
+                diamond.setPosition(px, py);
+                diamond.setFillColor(col);
+                _window.draw(diamond);
+                continue;
+            }
             if (overlayMode == 7) {
                 if (td.terrain == Terrain::Water) continue;
                 const int lv = td.landValue;

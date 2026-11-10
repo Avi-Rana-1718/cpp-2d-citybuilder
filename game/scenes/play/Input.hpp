@@ -18,7 +18,7 @@ bool Play_Scene::handleSpeedClick(const sf::Vector2f& point) {
 }
 
 void Play_Scene::handleCameraMovement(float deltaTime) {
-    float curSpeed = cameraSpeed;
+    float curSpeed = cameraSpeed * settings.cameraSpeed;
     if (sf::Keyboard::isKeyPressed(sf::Keyboard::LShift) || sf::Keyboard::isKeyPressed(sf::Keyboard::RShift)) {
         curSpeed *= 2.2f;
     }
@@ -58,6 +58,11 @@ void Play_Scene::handleCameraMovement(float deltaTime) {
 }
 
 void Play_Scene::handleToolHotkeys() {
+    // Esc with nothing to cancel opens the pause menu
+    bool esc = sf::Keyboard::isKeyPressed(sf::Keyboard::Escape);
+    if (esc && !wasEscKey && toolbar.getActiveTool() == TOOL_NONE && !budgetOpen && !logOpen && !isDragging) openMenu(MENU_PAUSE);
+    wasEscKey = esc;
+    if (esc && logOpen) logOpen = false;
     if (sf::Keyboard::isKeyPressed(sf::Keyboard::Escape)) {
         toolbar.setActiveTool(TOOL_NONE);
         setBudgetOpen(false);
@@ -134,6 +139,10 @@ void Play_Scene::handleToolHotkeys() {
     wasLoadKey = loadKey;
     wasUndoKey = undoKey;
     wasLogKey = logKey;
+
+    bool statsKey = sf::Keyboard::isKeyPressed(sf::Keyboard::G);
+    if (statsKey && !wasStatsKey) statsOpen = !statsOpen;
+    wasStatsKey = statsKey;
 
     // O cycles the map view (edge-triggered)
     bool overlayKey = sf::Keyboard::isKeyPressed(sf::Keyboard::O);

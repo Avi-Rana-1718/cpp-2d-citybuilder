@@ -6,6 +6,7 @@
 #include "../../src/_global.hpp"
 #include "./EconomyData.hpp"
 #include "./HappinessSystem.hpp"
+#include "./TradeSystem.hpp"
 #include "../entities/ResidentalZone.hpp"
 #include "../entities/CommericalZone.hpp"
 #include "../entities/IndustrialZone.hpp"
@@ -33,6 +34,7 @@ struct DayReport {
     int upkeepRoads = 0, upkeepSchools = 0, upkeepChurches = 0, upkeepParks = 0, upkeepHarbours = 0, upkeepUtilities = 0, upkeepServices = 0;
     int roadTiles = 0;
     float loanPayments = 0.f;
+    float tradeIncome = 0.f, tradeCost = 0.f;   // exports earned / imports paid
     float expenseTotal = 0.f;
     int net = 0; // whole dollars credited (negative = money left the treasury)
 };
@@ -174,6 +176,10 @@ public:
             // Pollution near homes
             r -= avgPollution * POLL_SENS[w];
 
+            // Trade: shops without goods lose customers, industry that can't ship loses orders
+            c -= 20.f * trade.shortage;
+            if (w <= WEALTH_MID) i -= 15.f * trade.glut;
+
             // Traffic jams keep customers away from shops
             c -= std::min(25.f, 25.f * std::max(0.f, traffic.cityCongestion - 1.f));
 
@@ -206,6 +212,8 @@ public:
         if (s == SECTOR_I && w == WEALTH_HIGH && avgEducation < 60.f) return "Needs educated workers";
         if (s == SECTOR_R && avgPollution > 25.f && w > WEALTH_LOW) return "Too much pollution";
         if (s == SECTOR_C && traffic.cityCongestion > 1.2f) return "Traffic jams";
+        if (s == SECTOR_C && trade.shortage > 0.2f) return "Shops can't get goods";
+        if (s == SECTOR_I && trade.glut > 0.3f) return "Nowhere to sell goods";
         if (!utilities.grace && utilities.unpoweredShare[s] > 0.2f) return "No power";
         if (!utilities.grace && utilities.unwateredShare[s] > 0.2f) return "No water";
         if (s == SECTOR_R && utilities.untreatedShare > 0.3f) return "Dirty water";
@@ -328,7 +336,9 @@ public:
                                               rep.upkeepParks + rep.upkeepHarbours + rep.upkeepUtilities +
                                               rep.upkeepServices) + rep.loanPayments;
 
-        float total = rep.taxTotal - rep.expenseTotal + carry;
+        rep.tradeIncome = trade.exportIncome;
+        rep.tradeCost = trade.importCost;
+        float total = rep.taxTotal + rep.tradeIncome - rep.expenseTotal - rep.tradeCost + carry;
         int whole = static_cast<int>(std::floor(total));
         carry = total - static_cast<float>(whole);
         money += whole;
@@ -352,6 +362,7 @@ public:
         roadNet.rebuild(); // outside connections for the occupancy step
         scan();
         utilities.runDay(); // who has power / water today; drains and recharges groundwater
+        trade.runDay();     // goods and food in and out of the city
         sampleServices(hs);
         computeDemand();
         updateOccupancy();

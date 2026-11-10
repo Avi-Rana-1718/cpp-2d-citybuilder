@@ -136,8 +136,9 @@ public:
             float room = 0.f;
             if (c >= 0)
                 for (const ServiceZone* f : pools[static_cast<size_t>(c)]) room += dailyRoom(f) - f->handled;
-            if (c < 0 || room < g) { unservedGarbage++; return; }
-            float left = g;
+            // Served when at least half of it is taken; the rest stays uncollected
+            if (c < 0 || room < 0.5f * g) { unservedGarbage++; return; }
+            float left = std::min(g, room);
             for (ServiceZone* f : pools[static_cast<size_t>(c)]) {
                 float take = std::min(left, dailyRoom(f) - f->handled);
                 if (take <= 0.f) continue;
@@ -148,7 +149,7 @@ public:
                 else dumped += take;
                 if (left <= 0.f) break;
             }
-            garbageCollected += g;
+            garbageCollected += std::min(g, room);
             garbageServed[x][y] = 1;
         });
     }

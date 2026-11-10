@@ -27,6 +27,7 @@
 // 20 points), commercial demand, the Traffic map view and the cars.
 
 const float COMMUTER_SHARE = 0.6f;
+const float MAX_COMMUTE = 40.f;   // jobs further than this (in dirt-road tiles of travel) are not taken
 const float JUNCTION_CAPACITY = 0.7f;
 const float ROUNDABOUT_CAPACITY = 1.5f;
 
@@ -71,19 +72,27 @@ public:
         return static_cast<int>(std::min(20.f, 20.f * std::max(0.f, cong - 1.f)));
     }
 
+    // Whole day at once (tests, fast-forward, start-up)
     void update() {
-        reset();
+        begin();
+        while (!step(1 << 30)) {}
+    }
+
+    // Resumable day: begin() gathers homes and jobs, step(n) routes up to n
+    // homes, and the results replace the visible maps once the last home is
+    // done. The game spreads the steps over several frames.
+    bool inProgress() const { return running; }
+
+    void begin() {
         roadNet.rebuild();
-
         const int N = tileMapW * tileMapH;
-        auto idx = [](int x, int y) { return x * tileMapH + y; };
-
-        // Jobs reachable from each road tile (job buildings on its border)
-        struct Job { int slots; };
-        std::vector<Job> jobs;
-        std::vector<std::vector<int>> jobsAt(static_cast<size_t>(N));
-        struct Home { int x, y, commuters; };
-        std::vector<Home> homes;
+        jobs.clear();
+        jobsAt.assign(static_cast<size_t>(N), std::vector<int>());
+        homes.clear();
+        trips.clear();
+        std::memset(nextLoad, 0, sizeof(nextLoad));
+        nextTrips = nextOutside = 0;
+        nextHome = 0;
 
         for (int i = 0; i < tileMapW; i++) {
             for (int j = 0; j < tileMapH; j++) {
@@ -107,93 +116,179 @@ public:
             }
         }
 
-        // Dijkstra buffers, reset only where touched
-        std::vector<float> dist(static_cast<size_t>(N), 1e30f);
-        std::vector<int> parent(static_cast<size_t>(N), -1);
-        std::vector<int> touched;
-        touched.reserve(static_cast<size_t>(N));
-        typedef std::pair<float, int> QItem;
-
-        struct Trip { int home, target, count; std::vector<int> path; };
-        std::vector<Trip> trips;
-
-        for (size_t h = 0; h < homes.size(); h++) {
-            const Home& home = homes[h];
-            for (int k : touched) { dist[static_cast<size_t>(k)] = 1e30f; parent[static_cast<size_t>(k)] = -1; }
-            touched.clear();
-
-            std::priority_queue<QItem, std::vector<QItem>, std::greater<QItem>> pq;
-            for (const auto& o : BORDER_2X2) {
-                int x = home.x + o[0], y = home.y + o[1];
-                if (roadTierOfName(tileKind(x, y)) < 0) continue;
-                int k = idx(x, y);
-                if (dist[static_cast<size_t>(k)] <= 0.f) continue;
-                dist[static_cast<size_t>(k)] = 0.f;
-                touched.push_back(k);
-                pq.push({0.f, k});
+        // Road links and step costs once per day, so the searches never touch entities
+        links.assign(static_cast<size_t>(N), 0);
+        stepCost.assign(static_cast<size_t>(N), 1.f);
+        for (int i = 0; i < tileMapW; i++)
+            for (int j = 0; j < tileMapH; j++) {
+                RoadTile* r = RoadTile::at(i, j);
+                if (r == NULL) continue;
+                links[static_cast<size_t>(idx(i, j))] = static_cast<uint8_t>(RoadTile::linkMask(i, j));
+                stepCost[static_cast<size_t>(idx(i, j))] = 1.f / ROAD_SPEED[r->tier];
             }
 
-            int left = home.commuters;
-            int borderTile = -1;
-            std::vector<std::pair<int, int>> targets; // (road tile, commuters)
-            while (!pq.empty() && (left > 0 || borderTile < 0)) {
+        // Every road tile's way out: one multi-source search from the map-edge roads
+        edgeDist.assign(static_cast<size_t>(N), 1e30f);
+        toEdge.assign(static_cast<size_t>(N), -1);
+        {
+            std::priority_queue<QItem, std::vector<QItem>, std::greater<QItem>> pq;
+            for (int i = 0; i < tileMapW; i++)
+                for (int j = 0; j < tileMapH; j++)
+                    if (onMapBorder(i, j) && RoadTile::at(i, j) != NULL) {
+                        edgeDist[static_cast<size_t>(idx(i, j))] = 0.f;
+                        pq.push({0.f, idx(i, j)});
+                    }
+            while (!pq.empty()) {
                 QItem top = pq.top();
                 pq.pop();
                 int k = top.second;
-                if (top.first > dist[static_cast<size_t>(k)]) continue;
+                if (top.first > edgeDist[static_cast<size_t>(k)]) continue;
                 int x = k / tileMapH, y = k % tileMapH;
-
-                if (left > 0) {
-                    for (int id : jobsAt[static_cast<size_t>(k)]) {
-                        int take = std::min(left, jobs[static_cast<size_t>(id)].slots);
-                        if (take <= 0) continue;
-                        jobs[static_cast<size_t>(id)].slots -= take;
-                        left -= take;
-                        targets.push_back({k, take});
-                        if (left == 0) break;
-                    }
-                }
-                if (borderTile < 0 && onMapBorder(x, y)) borderTile = k;
-
-                int m = RoadTile::linkMask(x, y);
                 for (int d = 0; d < 4; d++) {
-                    if (!(m & (1 << d))) continue;
-                    int nx = x + ROAD_DIR[d][0], ny = y + ROAD_DIR[d][1];
-                    RoadTile* nr = RoadTile::at(nx, ny);
-                    int nk = idx(nx, ny);
-                    float nd = top.first + 1.f / ROAD_SPEED[nr->tier];
-                    if (nd < dist[static_cast<size_t>(nk)]) {
-                        if (dist[static_cast<size_t>(nk)] >= 1e29f) touched.push_back(nk);
-                        dist[static_cast<size_t>(nk)] = nd;
-                        parent[static_cast<size_t>(nk)] = k;
+                    if (!(links[static_cast<size_t>(k)] & (1 << d))) continue;
+                    int nk = idx(x + ROAD_DIR[d][0], y + ROAD_DIR[d][1]);
+                    float nd = top.first + stepCost[static_cast<size_t>(k)];
+                    if (nd < edgeDist[static_cast<size_t>(nk)]) {
+                        edgeDist[static_cast<size_t>(nk)] = nd;
+                        toEdge[static_cast<size_t>(nk)] = k;
                         pq.push({nd, nk});
                     }
                 }
             }
-            if (left > 0 && borderTile >= 0) {
-                targets.push_back({borderTile, left});
-                outsideTrips += left;
-            }
+        }
 
-            for (const auto& t : targets) {
-                Trip trip{static_cast<int>(h), t.first, t.second, {}};
-                for (int k = t.first; k >= 0; k = parent[static_cast<size_t>(k)]) {
-                    trip.path.push_back(k);
-                    load[k / tileMapH][k % tileMapH] += static_cast<float>(t.second);
+        dist.assign(static_cast<size_t>(N), 1e30f);
+        parent.assign(static_cast<size_t>(N), -1);
+        touched.clear();
+        running = true;
+    }
+
+    // Routes up to maxHomes more homes; returns true when the day is finished
+    bool step(int maxHomes) {
+        if (!running) return true;
+        for (int done = 0; done < maxHomes && nextHome < homes.size(); done++, nextHome++) routeHome(nextHome);
+        if (nextHome < homes.size()) return false;
+        finish();
+        return true;
+    }
+
+private:
+    typedef std::pair<float, int> QItem;
+    struct Job { int slots; };
+    struct Home { int x, y, commuters; };
+    struct Trip { int home, target, count; std::vector<int> path; };
+
+    bool running = false;
+    size_t nextHome = 0;
+    std::vector<Job> jobs;
+    std::vector<std::vector<int>> jobsAt;
+    std::vector<Home> homes;
+    std::vector<Trip> trips;
+    std::vector<uint8_t> links;
+    std::vector<float> stepCost, edgeDist, dist;
+    std::vector<int> toEdge, parent, touched;
+    std::vector<QItem> heap;
+    float nextLoad[tileMapW][tileMapH];
+    int nextTrips = 0, nextOutside = 0;
+
+    static int idx(int x, int y) { return x * tileMapH + y; }
+
+    void routeHome(size_t h) {
+        const Home& home = homes[h];
+        for (int k : touched) { dist[static_cast<size_t>(k)] = 1e30f; parent[static_cast<size_t>(k)] = -1; }
+        touched.clear();
+
+        heap.clear();
+        std::priority_queue<QItem, std::vector<QItem>, std::greater<QItem>> pq(std::greater<QItem>(), std::move(heap));
+        for (const auto& o : BORDER_2X2) {
+            int x = home.x + o[0], y = home.y + o[1];
+            if (!inWorldBounds(x, y) || links[static_cast<size_t>(idx(x, y))] == 0) {
+                if (!inWorldBounds(x, y) || RoadTile::at(x, y) == NULL) continue;
+            }
+            int k = idx(x, y);
+            if (dist[static_cast<size_t>(k)] <= 0.f) continue;
+            dist[static_cast<size_t>(k)] = 0.f;
+            touched.push_back(k);
+            pq.push({0.f, k});
+        }
+
+        int left = home.commuters;
+        std::vector<std::pair<int, int>> targets; // (road tile, commuters)
+        // Jobs within a commute (MAX_COMMUTE in dirt-road tiles); the rest drive out of town
+        while (!pq.empty() && left > 0) {
+            QItem top = pq.top();
+            pq.pop();
+            int k = top.second;
+            if (top.first > dist[static_cast<size_t>(k)]) continue;
+            if (top.first > MAX_COMMUTE) break;
+            int x = k / tileMapH, y = k % tileMapH;
+            for (int id : jobsAt[static_cast<size_t>(k)]) {
+                int take = std::min(left, jobs[static_cast<size_t>(id)].slots);
+                if (take <= 0) continue;
+                jobs[static_cast<size_t>(id)].slots -= take;
+                left -= take;
+                targets.push_back({k, take});
+                if (left == 0) break;
+            }
+            int m = links[static_cast<size_t>(k)];
+            for (int d = 0; d < 4; d++) {
+                if (!(m & (1 << d))) continue;
+                int nk = idx(x + ROAD_DIR[d][0], y + ROAD_DIR[d][1]);
+                float nd = top.first + stepCost[static_cast<size_t>(nk)];
+                if (nd < dist[static_cast<size_t>(nk)]) {
+                    if (dist[static_cast<size_t>(nk)] >= 1e29f) touched.push_back(nk);
+                    dist[static_cast<size_t>(nk)] = nd;
+                    parent[static_cast<size_t>(nk)] = k;
+                    pq.push({nd, nk});
                 }
-                totalTrips += t.second;
+            }
+        }
+
+        // Leftover commuters: from the home's nearest edge-linked road straight out
+        if (left > 0) {
+            int start = -1;
+            for (const auto& o : BORDER_2X2) {
+                int x = home.x + o[0], y = home.y + o[1];
+                if (!inWorldBounds(x, y) || RoadTile::at(x, y) == NULL) continue;
+                int k = idx(x, y);
+                if (edgeDist[static_cast<size_t>(k)] < 1e29f && (start < 0 || edgeDist[static_cast<size_t>(k)] < edgeDist[static_cast<size_t>(start)])) start = k;
+            }
+            if (start >= 0) {
+                Trip trip{static_cast<int>(h), start, left, {}};
+                for (int k = start; k >= 0; k = toEdge[static_cast<size_t>(k)]) {
+                    trip.path.push_back(k);
+                    nextLoad[k / tileMapH][k % tileMapH] += static_cast<float>(left);
+                }
+                nextTrips += left;
+                nextOutside += left;
                 trips.push_back(std::move(trip));
             }
         }
 
+        for (const auto& t : targets) {
+            Trip trip{static_cast<int>(h), t.first, t.second, {}};
+            for (int k = t.first; k >= 0; k = parent[static_cast<size_t>(k)]) {
+                trip.path.push_back(k);
+                nextLoad[k / tileMapH][k % tileMapH] += static_cast<float>(t.second);
+            }
+            nextTrips += t.second;
+            trips.push_back(std::move(trip));
+        }
+    }
+
+    // Publish the finished day: loads, congestion and per-home route congestion
+    void finish() {
+        running = false;
+        reset();
+        std::memcpy(load, nextLoad, sizeof(load));
+        totalTrips = nextTrips;
+        outsideTrips = nextOutside;
         for (int i = 0; i < tileMapW; i++) {
             for (int j = 0; j < tileMapH; j++) {
                 RoadTile* r = RoadTile::at(i, j);
                 if (r != NULL) congestion[i][j] = load[i][j] / effectiveCapacity(r);
             }
         }
-
-        // Route congestion per home (average over its tiles, weighted by trips)
         std::vector<float> homeSum(homes.size(), 0.f), homeW(homes.size(), 0.f);
         double citySum = 0.0;
         for (const Trip& t : trips) {

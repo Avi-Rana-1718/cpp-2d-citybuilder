@@ -33,9 +33,9 @@ inline void resetTaxRates() {
 
 // Gross daily income per occupant (resident or worker) before tax
 const float INCOME_PER_CAPITA[SECTOR_COUNT][WEALTH_COUNT] = {
-    {4.f, 8.f, 16.f},     // residents
-    {5.5f, 11.f, 22.f},   // shop / office workers
-    {5.f, 10.f, 20.f},    // industrial workers
+    {4.f, 12.f, 24.f},    // residents
+    {5.5f, 16.f, 32.f},   // shop / office workers
+    {5.f, 15.f, 30.f},    // industrial workers
 };
 
 // Daily running cost of public structures
@@ -48,7 +48,7 @@ const int UPKEEP_HARBOUR = 40;
 // Road tiers: Dirt, Asphalt, Avenue (index = tier)
 const int ROAD_TIER_COUNT = 3;
 const int ROAD_COST[ROAD_TIER_COUNT] = {10, 30, 80};
-const int ROAD_UPKEEP[ROAD_TIER_COUNT] = {UPKEEP_ROAD, 3, 6};
+const int ROAD_UPKEEP[ROAD_TIER_COUNT] = {UPKEEP_ROAD, 2, 5};
 const int ROAD_CAPACITY[ROAD_TIER_COUNT] = {40, 120, 300};      // commuter trips per day
 const float ROAD_SPEED[ROAD_TIER_COUNT] = {1.f, 1.5f, 2.f};
 const int BRIDGE_COST_MULT = 5;     // bridge tile = 5x the tier's road cost
@@ -69,7 +69,7 @@ enum UtilityKind {
     UTIL_KIND_COUNT
 };
 const int UTIL_COST[UTIL_KIND_COUNT]   = {1500, 400, 800, 300, 150, 600, 900, 350, 250, 1200};
-const int UTIL_UPKEEP[UTIL_KIND_COUNT] = {25, 3, 8, 4, 1, 12, 18, 5, 2, 12};
+const int UTIL_UPKEEP[UTIL_KIND_COUNT] = {20, 3, 8, 4, 1, 8, 12, 5, 2, 8};
 // MW for plants, MW throughput for transformers, water units / day for
 // wells and pumps (at 100% groundwater), treatment capacity, tower storage
 // ... sewage outflow / treatment plant: sewage handled per day
@@ -101,7 +101,7 @@ enum ServiceKind {
     SERVICE_KIND_COUNT
 };
 const int SERVICE_COST[SERVICE_KIND_COUNT]   = {400, 400, 500, 600, 800, 700, 1400, 1100};
-const int SERVICE_UPKEEP[SERVICE_KIND_COUNT] = {15, 15, 20, 8, 0, 15, 18, 22};
+const int SERVICE_UPKEEP[SERVICE_KIND_COUNT] = {12, 12, 15, 8, 0, 15, 15, 20};
 const int SERVICE_RADIUS[SERVICE_KIND_COUNT] = {7, 7, 7, 0, 0, 8, 0, 0};
 // Garbage disposal: garbage never just vanishes. Landfills store it until
 // they are full; incinerators burn it (polluting, but it makes power);
@@ -124,6 +124,18 @@ const int CRIME_POP = 500;                 // from here, homes without police fe
 // Land value (0-100): upgrades need it
 const int LAND_VALUE_TIER2 = 40;
 const int LAND_VALUE_TIER3 = 60;
+
+// Trade (TradeSystem): goods and food made / used per occupant a day, prices
+const float GOODS_PER_WORKER[WEALTH_COUNT] = {1.0f, 1.4f, 2.0f};   // industry by tier
+const float FOOD_PER_FARMER = 2.0f;        // x soil x season
+const float GOODS_PER_RESIDENT = 0.1f;
+const float GOODS_PER_SHOP_WORKER = 0.2f;
+const float FOOD_PER_RESIDENT = 0.15f;
+const float GOODS_PRICE = 0.5f;            // $ per unit exported
+const float FOOD_PRICE = 0.35f;
+const float IMPORT_MARKUP = 1.3f;          // imports cost 30% more than exports earn
+const float TRADE_PER_EDGE_ROAD = 200.f;   // units a day through each dirt road leaving the map (x2 asphalt, x3 avenue)
+const float TRADE_PER_HARBOUR = 500.f;
 
 const int ZONE_COST_PER_TILE = 5;         // painting a zone
 const int ZONE_GROWTH_DEMAND_STEP = 30;    // one extra building a day per 30 demand

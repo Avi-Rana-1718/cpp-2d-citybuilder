@@ -51,8 +51,12 @@ bool benchCity=false;
 bool benchTown=false;  // --bench-town: a small starter town (~20 buildings) for balance checks
 std::string savePath;  // --save file.sav: save the city when --bench ends
 std::string loadPath;  // --load file.sav: open a saved city at start-up
+bool benchMetro=false;  // --bench-metro: a zoned grid city with every service, for balance at ~2,000 people
 bool starterCity=false; // --starter: bench town + road showcase (asphalt, avenue, roundabout), 60 days pre-simulated
 // Screenshot helpers: --menu N opens build category N (1-5), --inspect X Y selects a tile, --view N sets the map view
+bool showTitleMenu=false; // plain start (no options): open on the title screen
+bool quitRequested=false; // a menu asked to quit
+bool startStats=false;  // --stats: open the statistics panel (screenshots)
 bool startLog=false;    // --messages: open the message log (screenshots)
 bool startBudget=false; // --budget: open the budget panel (screenshots)
 int startMenu=-1, startInspectX=-1, startInspectY=-1, startView=0;  // --bench-city: fill the map with a dense test city before benchmarking

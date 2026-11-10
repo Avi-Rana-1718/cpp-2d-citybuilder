@@ -6,6 +6,8 @@
 #include <ctime>
 #include <random>
 #include "../../src/Scene.hpp"
+#include "../../src/Audio.hpp"
+#include "../../src/Settings.hpp"
 #include "../../src/_global.hpp"
 
 #include "../entities/Player.hpp"
@@ -103,6 +105,9 @@ class Play_Scene : public Scene {
     int shortageToastDay = -100;  // last day a utility shortage toast was shown
     BuildTool lastTool = TOOL_NONE;   // to switch the map view with power / water tools
     bool spawningZoned = false;       // placeTile is growing a building on a zone (free, not fixed)
+    bool trafficDue = false;          // today's commutes still to be routed
+    bool servicesDue = false;         // today's fires / mines / land value still to run (next frame)
+    static constexpr int TRAFFIC_HOMES_PER_FRAME = 40;
 
     // Message log (L): shortages, fires, debt, saves
     struct Notice { long day; std::string text; bool error; };
@@ -130,7 +135,7 @@ public:
     int getPlacementCost(int x, int y, BuildTool tool) const;
     std::string getOverlayName() const;
     int getOverlayMode() const { return overlayMode; }
-    static const int OVERLAY_COUNT = 8; // Normal, Fertility, Groundwater, Deposits, Traffic, Power, Water, Land value
+    static const int OVERLAY_COUNT = 9; // Normal, Fertility, Groundwater, Deposits, Traffic, Power, Water, Land value, Services
     void setOverlayMode(int mode) { overlayMode = (mode >= 0 && mode < OVERLAY_COUNT) ? mode : 0; }
     sf::FloatRect viewPanelBounds() const;
     sf::FloatRect viewButtonBounds(int mode) const;
@@ -157,6 +162,7 @@ public:
     int buildBenchTown();
     void connectBenchRoads(int x0, int x1, int y0);
     void buildStarterShowcase();
+    int buildBenchMetro();
     // Grows tier-1 buildings on zoned lots with road access while demand lasts (daily)
     int growZones();
     // Places a utility on the first buildable lot next to the road row y (x from x0 stepping dx)
@@ -177,7 +183,50 @@ public:
     bool loadFail(const std::string& why) { loadError = why; return false; }
     Zone* createStructure(const std::string& name, int x, int y, int tier, int variant, int extra);
     void onClose() override;
-    bool autosaveAllowed() const { return !headless && benchSeconds <= 0.f && fastForwardDays <= 0; }
+    bool autosaveAllowed() const { return settings.autosave && !headless && benchSeconds <= 0.f && fastForwardDays <= 0; }
+
+    // ---- Menus (play/Menu.hpp) ----
+    enum MenuPage { MENU_NONE, MENU_TITLE, MENU_PAUSE, MENU_NEW, MENU_SETTINGS };
+    MenuPage menuPage = MENU_NONE;
+    MenuPage menuBack = MENU_TITLE;
+    uint32_t newCitySeed = 1;
+    bool newCitySandbox = false;
+    bool menuMouseWasDown = false;
+    bool wasEscKey = false;
+    struct MenuButton { sf::FloatRect r; int id; std::string label; bool enabled; bool active; };
+    std::vector<MenuButton> menuButtons() const;
+    void openMenu(MenuPage page);
+    void handleMenuClick(int id);
+    void beginNewCity(uint32_t seed, int difficulty, bool sandbox);
+    void updateMenu(float deltaTime);
+    void renderMenu(const sf::Vector2f& mouse);
+
+    // ---- Statistics (play/Stats.hpp) ----
+    struct DaySample { int population = 0, money = 0, net = 0, happiness = 0; int demand[3] = {0, 0, 0}; float exports = 0.f, imports = 0.f; };
+    std::deque<DaySample> history;
+    static constexpr size_t HISTORY_DAYS = 360;
+    static constexpr int STATS_TABS = 5;
+    bool statsOpen = false;
+    int statsTab = 0;
+    bool wasStatsKey = false;
+    void recordHistory(const DayReport& rep);
+    sf::FloatRect statsBounds() const;
+    sf::FloatRect statsTabBounds(int tab) const;
+    sf::FloatRect statsChipBounds() const { return sf::FloatRect(uikit::SW() - 298.f, uikit::SH() - 58.f, 140.f, 24.f); }
+    bool handleStatsClick(const sf::Vector2f& p);
+    void drawChart(const sf::FloatRect& r, const std::vector<std::vector<float>>& series, const std::vector<sf::Color>& colors, bool symmetric);
+    void renderStats(const sf::Vector2f& mouse);
+
+    // ---- City ranks (milestones) and tips ----
+    bool milestonesEnabled = false;   // normal play only: tools unlock as the city grows
+    int bestPopulation = 0;           // highest population reached (ranks never go down)
+    int rankShown = 0;
+    int cityRank() const { return rankForPopulation(bestPopulation); }
+    void checkMilestones();
+    std::string tipText;
+    std::string computeTip() const;
+    sf::FloatRect tipBounds() const;
+    void renderTip(const sf::Vector2f& mouse);
 
     // ---- Undo (Ctrl+Z): city snapshots taken before each build action ----
     // A build step stores a city snapshot; a tax step only the old tax rates
@@ -301,6 +350,10 @@ void Play_Scene::init() {
         std::cout << "\nBench town: " << built << " buildings\n";
     }
     if (starterCity) buildStarterShowcase();
+    if (benchMetro) {
+        int lots = buildBenchMetro();
+        std::cout << "\nBench metro: " << lots << " zoned tiles\n";
+    }
     placementErrorTimer = 0.f; // no build-time toasts from the scripted towns
     if (!loadPath.empty()) {
         if (loadCity(loadPath)) {
@@ -327,6 +380,12 @@ void Play_Scene::init() {
     setOverlayMode(startView);
     if (startBudget) setBudgetOpen(true);
     if (startLog) logOpen = true;
+    if (startStats) { statsOpen = true; statsTab = 4; }
+    if (showTitleMenu) {
+        menuPage = MENU_TITLE;
+        currentZoom = 1.3f;
+        view.setSize(uikit::SW() * currentZoom, uikit::SH() * currentZoom);
+    }
 
     // Balance testing: simulate N days instantly and print the trend (--fast-forward N)
     if (fastForwardDays > 0) {
@@ -382,6 +441,8 @@ void Play_Scene::startNewCity(uint32_t seed) {
     cars.clear();
     utilities.reset();
     services.reset();
+    trade.reset();
+    history.clear();
     utilitiesDirty = true;
     shortageToastDay = -100;
     undoStack.clear();
@@ -415,6 +476,11 @@ void Play_Scene::showToast(const std::string& msg, bool isError) {
 
 void Play_Scene::update(float deltaTime) {
     this->_deltaTime = deltaTime;
+    if (menuPage != MENU_NONE) {
+        updateMenu(deltaTime);
+        return;
+    }
+    toolbar.unlockedRank = milestonesEnabled ? cityRank() : 99;
     if (placementErrorTimer > 0.f) {
         placementErrorTimer -= deltaTime;
     }
@@ -448,8 +514,10 @@ void Play_Scene::update(float deltaTime) {
     // Check if mouse is interacting with UI elements
     bool overViewPanel = viewPanelBounds().contains(mousePixelF);
     bool overBudget = budgetOpen && budgetBounds().contains(mousePixelF);
+    bool overStats = statsChipBounds().contains(mousePixelF) || (statsOpen && statsBounds().contains(mousePixelF));
+    bool overTip = settings.tips && milestonesEnabled && tipBounds().contains(mousePixelF);
     bool overLog = logChipBounds().contains(mousePixelF) || (logOpen && sf::FloatRect(uikit::SW() - 432.f, uikit::SH() - 420.f, 420.f, 356.f).contains(mousePixelF));
-    bool mouseOverUI = !focused || economy.bankrupt || toolbar.contains(mousePixelF) || overViewPanel || overLog ||
+    bool mouseOverUI = !focused || economy.bankrupt || toolbar.contains(mousePixelF) || overViewPanel || overLog || overTip || overStats ||
                        (mousePixelF.y <= 50.f) || inspectCardRect.contains(mousePixelF) || overBudget;
 
     bool isLeftPressed = focused && sf::Mouse::isButtonPressed(sf::Mouse::Left);
@@ -465,7 +533,14 @@ void Play_Scene::update(float deltaTime) {
     } else if (budgetOpen && handleBudgetPointer(mousePixelF, isLeftPressed, justPressed)) {
         // budget panel used the click / drag
     } else if (isLeftPressed && !wasLeftPressed && mouseOverUI) {
-        if (logChipBounds().contains(mousePixelF)) {
+        if (statsChipBounds().contains(mousePixelF)) {
+            statsOpen = !statsOpen;
+        } else if (statsOpen && handleStatsClick(mousePixelF)) {
+            // stats panel used the click
+        } else if (overTip) {
+            sf::FloatRect r = tipBounds();
+            if (mousePixelF.x >= r.left + r.width - 34.f) { settings.tips = false; settings.save(); }
+        } else if (logChipBounds().contains(mousePixelF)) {
             logOpen = !logOpen;
         } else if (overLog) {
             // clicks on the open log do nothing
@@ -475,7 +550,7 @@ void Play_Scene::update(float deltaTime) {
             if (moneyChipBounds().contains(mousePixelF)) setBudgetOpen(!budgetOpen);
             else handleSpeedClick(mousePixelF);
         } else {
-            toolbar.handleClick(mousePixelF);
+            if (toolbar.handleClick(mousePixelF)) audio.play("click", 0.6f);
         }
     }
 
@@ -496,6 +571,7 @@ void Play_Scene::update(float deltaTime) {
 
     // 3. Game time: days, economy and simulation (scaled by speed, frozen when paused)
     advanceTime(deltaTime);
+    audio.update(gameClock.isPaused(), services.burning > 0);
 }
 
 // Power tools show the Power view, water tools the Water view (that is
@@ -524,10 +600,28 @@ void Play_Scene::advanceTime(float realSeconds) {
         utilities.refreshService();
         services.update();
         utilitiesDirty = false;
+        if (milestonesEnabled) tipText = computeTip();
     }
     int newDays = gameClock.advance(realSeconds);
+    // The day's work is staggered over frames: economy on the day boundary,
+    // services on the next frame, commutes from midday
+    const bool skipping = realSeconds >= GameClock::SECONDS_PER_DAY * 0.5f;
+    if (servicesDue && (newDays > 0 || !skipping)) { runServicesDay(); servicesDue = false; }
     for (int d = 0; d < newDays; d++) {
+        if (servicesDue) { runServicesDay(); servicesDue = false; }   // catch up before the next day
+        if (trafficDue) { traffic.update(); trafficDue = false; }
+        else if (traffic.inProgress()) traffic.step(1 << 30);
         runNewDay();
+    }
+    if (servicesDue && skipping) { runServicesDay(); servicesDue = false; }
+    // Commutes from midday, a slice of homes per frame (all at once when a
+    // whole day is skipped, e.g. --fast-forward)
+    if (trafficDue && (gameClock.getDayProgress() >= 0.5f || realSeconds >= GameClock::SECONDS_PER_DAY * 0.5f)) {
+        traffic.begin();
+        trafficDue = false;
+        if (realSeconds >= GameClock::SECONDS_PER_DAY * 0.5f) traffic.step(1 << 30);
+    } else if (traffic.inProgress()) {
+        traffic.step(TRAFFIC_HOMES_PER_FRAME);
     }
 
     // One simulation tick per game second; at 4x that is 4 per real second.
@@ -564,10 +658,12 @@ void Play_Scene::runServicesDay() {
     }
     services.computeLandValue(happinessSystem.parkMap, happinessSystem.educationMap, happinessSystem.commerceMap,
                               happinessSystem.pollutionMap, traffic.congestion);
+    if (milestonesEnabled) tipText = computeTip();
 }
 
 void Play_Scene::notify(const std::string& msg, bool isError) {
     showToast(msg, isError);
+    if (isError) audio.play("alert", 0.8f);
     notices.push_front({gameClock.getTotalDays(), msg, isError});
     while (notices.size() > 40) notices.pop_back();
 }
@@ -602,9 +698,11 @@ bool Play_Scene::undoLast() {
 
 void Play_Scene::runNewDay() {
     growZones();      // new buildings on zoned land (from yesterday's demand)
-    traffic.update(); // commutes on today's roads feed happiness and demand
+    trafficDue = true; // commutes are routed half a day later (spreads the daily work over two frames)
     DayReport rep = economy.runDay(happinessSystem);
     lastDailyIncome = rep.net;
+    checkMilestones();
+    recordHistory(rep);
 
     // Debt warnings: the city may stay below $0 for at most 180 days
     int d = economy.daysInDebt;
@@ -632,7 +730,7 @@ void Play_Scene::runNewDay() {
     else if (d == 90) notify("3 months of debt left - raise taxes or take a loan", true);
     else if (d == 150) notify("1 month left before bankruptcy!", true);
 
-    runServicesDay();
+    servicesDue = true;   // fires, mines, land value and tips run on the next frame
 
     // Autosave once a month (not in benchmarks / tests)
     if (autosaveAllowed() && today > 0 && today % GameClock::DAYS_PER_MONTH == 0) saveCity("autosave.sav");
@@ -663,4 +761,6 @@ void Play_Scene::runSimulationTick() {
 #include "./play/Towns.hpp"
 #include "./play/WorldRender.hpp"
 #include "./play/Hud.hpp"
+#include "./play/Menu.hpp"
+#include "./play/Stats.hpp"
 #include "./SaveGame.hpp"

@@ -144,6 +144,38 @@ inline uint8_t zoneToolValue(BuildTool tool) { return isZoneTool(tool) ? static_
 inline bool isLineTool(BuildTool tool) { return tool == TOOL_POWER_LINE || tool == TOOL_WATER_PIPE; }
 inline uint8_t lineToolBit(BuildTool tool) { return tool == TOOL_POWER_LINE ? 1 : (tool == TOOL_WATER_PIPE ? 2 : 0); }
 
+// -------------------------------------------------------------
+// City ranks: reaching a population unlocks buildings and pays a bonus
+// -------------------------------------------------------------
+struct CityRank { const char* name; int population; int reward; };
+const CityRank CITY_RANKS[] = {
+    {"Settlement", 0, 0}, {"Village", 300, 5000}, {"Town", 1000, 15000}, {"City", 2500, 30000}, {"Metropolis", 5000, 60000},
+};
+const int CITY_RANK_COUNT = 5;
+inline int rankForPopulation(int pop) {
+    int r = 0;
+    for (int k = 0; k < CITY_RANK_COUNT; k++) if (pop >= CITY_RANKS[k].population) r = k;
+    return r;
+}
+// Rank a tool needs (0 = available from the start)
+inline int toolRank(BuildTool tool) {
+    switch (tool) {
+        case TOOL_ROAD_ASPHALT: case TOOL_ZONE_R_MED: case TOOL_ZONE_C_MED: case TOOL_ZONE_I_MED:
+        case TOOL_RES_APARTMENTS: case TOOL_COM_PLAZA: case TOOL_IND_FACTORY:
+        case TOOL_POLICE: case TOOL_CLINIC: case TOOL_POWER_SOLAR: case TOOL_WATER_PUMP: case TOOL_WATER_TREATMENT:
+        case TOOL_WATER_TOWER: case TOOL_BUS_DEPOT: case TOOL_SEWAGE_OUTFLOW: case TOOL_CHURCH:
+            return 1;
+        case TOOL_ROAD_AVENUE: case TOOL_ROUNDABOUT: case TOOL_ZONE_R_HIGH: case TOOL_ZONE_C_HIGH: case TOOL_ZONE_I_HIGH:
+        case TOOL_RES_TOWER: case TOOL_COM_TOWER: case TOOL_IND_TECH: case TOOL_POWER_COAL: case TOOL_INCINERATOR:
+        case TOOL_SEWAGE_PLANT: case TOOL_MINE: case TOOL_HARBOUR:
+            return 2;
+        case TOOL_RECYCLING:
+            return 3;
+        default:
+            return 0;
+    }
+}
+
 // Texture shown on the tool's card and used as its placement ghost
 inline std::string toolThumbnailKey(BuildTool tool) {
     switch (tool) {
@@ -237,6 +269,7 @@ class Toolbar {
 public:
     int dragCostPreview = -1; // total cost of the drag in progress (-1 = show the tool price)
     std::string pillNote;     // extra line on the pill (e.g. a well's expected output here)
+    int unlockedRank = 99;    // tools needing a higher rank are shown locked
 private:
     ToolbarCategory activeCategory = ToolbarCategory::INSPECT;
     bool flyoutOpen = false;
@@ -328,13 +361,13 @@ public:
         add(TOOL_CHURCH, "COMMUNITY CHURCH", "Faith r4 - $20/day", "2", sf::Color(170, 120, 220), C::CIVICS);
         add(TOOL_PARK, "NATURE PARK", "Health r4 - $10/day", "3", sf::Color(72, 200, 110), C::CIVICS);
         add(TOOL_HARBOUR, "TRADE HARBOUR", "Port jobs - $40/day", "H", sf::Color(64, 160, 230), C::CIVICS);
-        add(TOOL_POLICE, "POLICE STATION", "Safety r7 - $15/day", "", sf::Color(70, 110, 220), C::CIVICS);
-        add(TOOL_FIRE_STATION, "FIRE STATION", "Stops fires r7 - $15/day", "", sf::Color(230, 70, 50), C::CIVICS);
-        add(TOOL_CLINIC, "CLINIC", "Health r7 - $20/day", "", sf::Color(235, 235, 240), C::CIVICS);
+        add(TOOL_POLICE, "POLICE STATION", "Safety r7 - $12/day", "", sf::Color(70, 110, 220), C::CIVICS);
+        add(TOOL_FIRE_STATION, "FIRE STATION", "Stops fires r7 - $12/day", "", sf::Color(230, 70, 50), C::CIVICS);
+        add(TOOL_CLINIC, "CLINIC", "Health r7 - $15/day", "", sf::Color(235, 235, 240), C::CIVICS);
 
         add(TOOL_ROAD, "DIRT ROAD", "40 cars/day - $1/day - drag", "Space", sf::Color(190, 196, 204), C::INFRASTRUCTURE);
-        add(TOOL_ROAD_ASPHALT, "ASPHALT ROAD", "120 cars/day - $3/day - upgrades", "", sf::Color(150, 156, 168), C::INFRASTRUCTURE);
-        add(TOOL_ROAD_AVENUE, "AVENUE", "300 cars/day - $6/day - upgrades", "", sf::Color(226, 196, 70), C::INFRASTRUCTURE);
+        add(TOOL_ROAD_ASPHALT, "ASPHALT ROAD", "120 cars/day - $2/day - upgrades", "", sf::Color(150, 156, 168), C::INFRASTRUCTURE);
+        add(TOOL_ROAD_AVENUE, "AVENUE", "300 cars/day - $5/day - upgrades", "", sf::Color(226, 196, 70), C::INFRASTRUCTURE);
         add(TOOL_ROUNDABOUT, "ROUNDABOUT", "Junction capacity x2 - $2/day", "", sf::Color(110, 190, 120), C::INFRASTRUCTURE);
         add(TOOL_WATER, "WATER BODY", "1x1 - drag to fill", "W", sf::Color(64, 140, 220), C::INFRASTRUCTURE);
         add(TOOL_BULLDOZE, "DEMOLISH", "Clear tiles - drag", "X", sf::Color(235, 87, 72), C::INFRASTRUCTURE);
@@ -342,26 +375,32 @@ public:
         add(TOOL_BUS_DEPOT, "BUS DEPOT", "30% fewer cars r8 - $15/day", "", sf::Color(240, 190, 50), C::INFRASTRUCTURE);
 
         const sf::Color power(245, 200, 60), water(64, 160, 230);
-        add(TOOL_POWER_COAL, "COAL PLANT", "400 power, pollutes - $25/day", "U", power, C::UTILITIES);
+        add(TOOL_POWER_COAL, "COAL PLANT", "400 power, pollutes - $20/day", "U", power, C::UTILITIES);
         add(TOOL_POWER_WIND, "WIND TURBINES", "60 power, clean - $3/day", "", power, C::UTILITIES);
         add(TOOL_POWER_SOLAR, "SOLAR FARM", "120 power, less in winter", "", power, C::UTILITIES);
         add(TOOL_TRANSFORMER, "TRANSFORMER", "Delivers 150 power - $4/day", "", power, C::UTILITIES);
         add(TOOL_POWER_LINE, "POWER LINE", "$8 per tile - drag", "", power, C::UTILITIES);
         add(TOOL_WATER_WELL, "WATER WELL", "80 clean water - $1/day", "", water, C::UTILITIES);
-        add(TOOL_WATER_PUMP, "UNDERGROUND PUMP", "400 raw water - $12/day", "", water, C::UTILITIES);
-        add(TOOL_WATER_TREATMENT, "WATER TREATMENT", "Cleans 400 raw - $18/day", "", water, C::UTILITIES);
+        add(TOOL_WATER_PUMP, "UNDERGROUND PUMP", "400 raw water - $8/day", "", water, C::UTILITIES);
+        add(TOOL_WATER_TREATMENT, "WATER TREATMENT", "Cleans 400 raw - $12/day", "", water, C::UTILITIES);
         add(TOOL_WATER_TOWER, "WATER TOWER", "Stores 300 water - $5/day", "", water, C::UTILITIES);
         add(TOOL_WATER_PIPE, "WATER PIPE", "Underground, $6 per tile - drag", "", water, C::UTILITIES);
         const sf::Color waste(150, 130, 90);
         add(TOOL_LANDFILL, "LANDFILL", "Stores 15,000 garbage - $8/day", "", waste, C::WASTE);
         add(TOOL_INCINERATOR, "INCINERATOR", "Burns 200/day, makes power - pollutes", "", waste, C::WASTE);
-        add(TOOL_RECYCLING, "RECYCLING CENTRE", "Recycles 120/day cleanly - $22/day", "", waste, C::WASTE);
+        add(TOOL_RECYCLING, "RECYCLING CENTRE", "Recycles 120/day cleanly - $20/day", "", waste, C::WASTE);
         add(TOOL_SEWAGE_OUTFLOW, "SEWAGE OUTFLOW", "300 sewage into water - pollutes", "", sf::Color(120, 110, 80), C::WASTE);
-        add(TOOL_SEWAGE_PLANT, "SEWAGE TREATMENT", "Treats 300 sewage cleanly - $12/day", "", sf::Color(120, 110, 80), C::WASTE);
+        add(TOOL_SEWAGE_PLANT, "SEWAGE TREATMENT", "Treats 300 sewage cleanly - $8/day", "", sf::Color(120, 110, 80), C::WASTE);
     }
 
     // ---- state ----
     BuildTool getActiveTool() const { return currentTool; }
+
+    std::string titleOf(BuildTool tool) const {
+        for (const auto& item : allTools)
+            if (item.tool == tool) return uikit::titleCase(item.title);
+        return "";
+    }
 
     std::string getActiveToolName() const {
         for (const auto& item : allTools)
@@ -509,7 +548,8 @@ public:
                 const ToolItem& item = *list[i];
                 sf::FloatRect cb = cardBounds(i);
                 int cost = toolCost(item.tool);
-                bool affordable = money >= cost;
+                const bool locked = toolRank(item.tool) > unlockedRank;
+                bool affordable = money >= cost && !locked;
                 bool hovered = cb.contains(mousePos);
                 bool active = (item.tool == currentTool);
 
@@ -527,9 +567,12 @@ public:
                 float tx = cb.left + 72.f;
                 float maxW = cb.left + cb.width - 8.f - tx - (item.hotkey.empty() ? 0.f : 44.f);
                 text(window, fitText(titleCase(item.title), 13, maxW, true), tx, cb.top + 10.f, 13, affordable ? TEXT : TEXT_DIM, true);
-                text(window, fitText(item.subtitle, 11, cb.left + cb.width - 8.f - tx), tx, cb.top + 29.f, 11, TEXT_DIM);
+                const CityRank& need = CITY_RANKS[std::min(CITY_RANK_COUNT - 1, toolRank(item.tool))];
+                const std::string sub = locked ? std::string("Unlocks at ") + need.name + " (" + std::to_string(need.population) + " people)"
+                                               : item.subtitle;
+                text(window, fitText(sub, 11, cb.left + cb.width - 8.f - tx), tx, cb.top + 29.f, 11, locked ? WARN : TEXT_DIM);
 
-                std::string price = (item.tool == TOOL_BULLDOZE) ? "$5+" : formatMoney(cost);
+                std::string price = locked ? "Locked" : (item.tool == TOOL_BULLDOZE) ? "$5+" : formatMoney(cost);
                 text(window, price, tx, cb.top + 45.f, 12, affordable ? GOOD : BAD, true);
 
                 if (!item.hotkey.empty()) {

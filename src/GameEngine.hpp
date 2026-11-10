@@ -49,6 +49,8 @@ GameEngine::GameEngine() {
     view.setCenter(sf::Vector2f(screenW / 2.f, screenH / 2.f));
     _window.setView(view);
 
+    settings.load();
+    audio.init();
     assets.addFont("../assets/Hack.ttf");
     assets.addTexture("grass", "grass.png");
     assets.addTexture("player", "player.png");
@@ -92,7 +94,7 @@ GameEngine::GameEngine() {
         "inspect", "residential", "commercial", "industrial", "civic", "infrastructure", "road", "bulldoze",
         "coin", "people", "smile", "season_spring", "season_summer", "season_autumn", "season_winter",
         "view_normal", "view_fertility", "view_water", "view_deposits", "view_traffic", "warning", "star",
-        "utilities", "view_power", "view_tap", "no_power", "no_water", "power_line", "water_pipe", "view_land", "waste",
+        "utilities", "view_power", "view_tap", "no_power", "no_water", "power_line", "water_pipe", "view_land", "waste", "view_services",
         "speed_pause", "speed_1", "speed_2", "speed_4"};
     for (const char* name : uiIcons) {
         assets.addTexture(std::string("ui_") + name, std::string("ui/") + name + ".png");
@@ -210,5 +212,10 @@ void GameEngine::run() {
         }
 
         currentScene->update(deltaTime.asSeconds());
+        if (quitRequested) {
+            currentScene->onClose();
+            isRunning = false;
+            _window.close();
+        }
     } 
 }

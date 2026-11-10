@@ -11,13 +11,14 @@ std::string Play_Scene::getOverlayName() const {
         case 5: return "Power";
         case 6: return "Water";
         case 7: return "Land value";
+        case 8: return "Services";
         default: return "Normal";
     }
 }
 
 // Map View panel: fixed screen-space buttons under the top bar (left side)
 sf::FloatRect Play_Scene::viewPanelBounds() const {
-    return sf::FloatRect(uikit::SW() - 404.f, 58.f, 392.f, 84.f);
+    return sf::FloatRect(uikit::SW() - 452.f, 58.f, 440.f, 84.f);
 }
 
 sf::FloatRect Play_Scene::viewButtonBounds(int mode) const {
@@ -42,11 +43,12 @@ void Play_Scene::renderViewPanel(const sf::Font& font, const sf::Vector2f& mouse
     panel(_window, pb, 12.f);
 
     const char* icons[OVERLAY_COUNT] = {"view_normal", "view_fertility", "view_water", "view_deposits", "view_traffic",
-                                        "view_power", "view_tap", "view_land"};
-    const char* names[OVERLAY_COUNT] = {"Normal", "Fertility", "Groundwater", "Deposits", "Traffic", "Power", "Water", "Land value"};
+                                        "view_power", "view_tap", "view_land", "view_services"};
+    const char* names[OVERLAY_COUNT] = {"Normal", "Fertility", "Groundwater", "Deposits", "Traffic", "Power", "Water", "Land value", "Services"};
     const sf::Color tints[OVERLAY_COUNT] = {sf::Color(200, 210, 220), sf::Color(120, 215, 90),
                                             sf::Color(80, 170, 240), sf::Color(240, 150, 70), sf::Color(240, 200, 60),
-                                            sf::Color(250, 210, 60), sf::Color(90, 180, 245), sf::Color(120, 230, 160)};
+                                            sf::Color(250, 210, 60), sf::Color(90, 180, 245), sf::Color(120, 230, 160),
+                                            sf::Color(200, 160, 240)};
 
     int hovered = -1;
     for (int m = 0; m < OVERLAY_COUNT; m++) {
@@ -82,6 +84,8 @@ void Play_Scene::renderViewPanel(const sf::Font& font, const sf::Vector2f& mouse
                 x += key(x, sf::Color(230, 60, 50), "Dry"); key(x, sf::Color(40, 130, 230, 200), "Reserve"); break;
         case 7: x += key(x, sf::Color(200, 70, 60), "Low"); x += key(x, sf::Color(230, 200, 70), "Tier 2 (40+)");
                 key(x, sf::Color(70, 210, 110), "Tier 3 (60+)"); break;
+        case 8: x += key(x, sf::Color(70, 120, 240), "Police"); x += key(x, sf::Color(235, 70, 60), "Fire");
+                x += key(x, sf::Color(70, 210, 110), "Clinic"); key(x, sf::Color(120, 90, 50), "No garbage pickup"); break;
         default: textMid(_window, "Map view  [O]", pb.left + 10.f, ly, 20.f, 11, TEXT_DIM); break;
     }
 }
@@ -107,6 +111,14 @@ void Play_Scene::renderHUD(float deltaTime) {
     toolbar.draw(_window, font, mouse);
     if (budgetOpen) renderBudget(mouse);
     renderLog(mouse);
+    {   // Stats chip, left of the messages chip
+        using namespace uikit;
+        sf::FloatRect c = statsChipBounds();
+        roundedRect(_window, c, 8.f, c.contains(mouse) || statsOpen ? PANEL_HOVER : PANEL, statsOpen ? ACCENT : BORDER, 1.f);
+        textMid(_window, "Stats [G]", c.left + 10.f, c.top, c.height, 10, TEXT_DIM);
+    }
+    renderStats(mouse);
+    renderTip(mouse);
     renderToast();
     if (economy.bankrupt) renderGameOver(mouse);
 
@@ -141,7 +153,7 @@ void Play_Scene::renderTopBar(const sf::Vector2f& mouse) {
     // City name (hidden on narrow windows)
     if (sh == 0.f) {
         text(_window, "Chime City", 16.f, 9.f, 15, ACCENT, true);
-        text(_window, "Year " + std::to_string(gameClock.getYear()), 16.f, 29.f, 10, TEXT_DIM);
+        text(_window, std::string(CITY_RANKS[cityRank()].name) + " - Year " + std::to_string(gameClock.getYear()), 16.f, 29.f, 10, TEXT_DIM);
     }
 
     // Treasury (click for the budget)
@@ -810,8 +822,10 @@ void Play_Scene::renderBudget(const sf::Vector2f& mouse) {
     text(_window, "SUMMARY", rx, y, 11, TEXT_DIM, true);
     y += 22.f;
     row("Tax income", "+" + dollars(rep.taxTotal), GOOD);
+    row("Exports - imports", (rep.tradeIncome >= rep.tradeCost ? "+" : "-") + dollars(std::fabs(rep.tradeIncome - rep.tradeCost)),
+        rep.tradeIncome >= rep.tradeCost ? GOOD : BAD);
     row("Expenses", "-" + dollars(rep.expenseTotal), BAD);
-    float net = rep.taxTotal - rep.expenseTotal;
+    float net = rep.taxTotal + rep.tradeIncome - rep.expenseTotal - rep.tradeCost;
     text(_window, "Net per day", rx, y, 13, TEXT, true);
     textRight(_window, (net >= 0.f ? "+" : "-") + dollars(std::fabs(net)), rx + rw, y, 13, net >= 0.f ? GOOD : BAD, true);
     y += 30.f;

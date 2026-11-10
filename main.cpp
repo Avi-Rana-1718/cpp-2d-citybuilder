@@ -10,6 +10,7 @@
 int main(int argc, char** argv)
 {
     bool forceShow = false;
+    showTitleMenu = (argc == 1);
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
         if (arg == "--headless") headless = true;
@@ -17,8 +18,11 @@ int main(int argc, char** argv)
         else if (arg == "--bench-city") benchCity = true;
         else if (arg == "--bench-town") benchTown = true;
         else if (arg == "--starter") starterCity = true;
+        else if (arg == "--bench-metro") benchMetro = true;
         else if (arg == "--budget") startBudget = true;
         else if (arg == "--messages") startLog = true;
+        else if (arg == "--title") showTitleMenu = true;
+        else if (arg == "--stats") startStats = true;   // screenshots of the title screen
     }
 
     // --seed N generates a reproducible world; omitted or 0 = random
