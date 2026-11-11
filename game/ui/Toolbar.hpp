@@ -147,9 +147,11 @@ inline uint8_t lineToolBit(BuildTool tool) { return tool == TOOL_POWER_LINE ? 1 
 // -------------------------------------------------------------
 // City ranks: reaching a population unlocks buildings and pays a bonus
 // -------------------------------------------------------------
-struct CityRank { const char* name; int population; int reward; };
+// A rank also needs happiness and services (Play_Scene::rankRequirements)
+struct CityRank { const char* name; int population; int happiness; int reward; };
 const CityRank CITY_RANKS[] = {
-    {"Settlement", 0, 0}, {"Village", 300, 5000}, {"Town", 1000, 15000}, {"City", 2500, 30000}, {"Metropolis", 5000, 60000},
+    {"Settlement", 0, 0, 0}, {"Village", 300, 45, 5000}, {"Town", 1000, 50, 15000},
+    {"City", 2500, 55, 30000}, {"Metropolis", 5000, 60, 60000},
 };
 const int CITY_RANK_COUNT = 5;
 inline int rankForPopulation(int pop) {
@@ -270,6 +272,16 @@ public:
     int dragCostPreview = -1; // total cost of the drag in progress (-1 = show the tool price)
     std::string pillNote;     // extra line on the pill (e.g. a well's expected output here)
     int unlockedRank = 99;    // tools needing a higher rank are shown locked
+    float zoneDemand[SECTOR_COUNT][WEALTH_COUNT] = {};   // shown on the zone cards (set by the scene)
+
+    // Demand a zone card stands for: the best income level its density can grow
+    float demandForZoneTool(BuildTool t) const {
+        if (!isZoneTool(t)) return 0.f;
+        const int v = zoneToolValue(t) - 1, s = v / 3, d = v % 3;
+        float best = -100.f;
+        for (int w = 0; w <= d; w++) best = std::max(best, zoneDemand[s][w]);
+        return best;
+    }
 private:
     ToolbarCategory activeCategory = ToolbarCategory::INSPECT;
     bool flyoutOpen = false;
@@ -573,6 +585,22 @@ public:
                 text(window, fitText(sub, 11, cb.left + cb.width - 8.f - tx), tx, cb.top + 29.f, 11, locked ? WARN : TEXT_DIM);
 
                 std::string price = locked ? "Locked" : (item.tool == TOOL_BULLDOZE) ? "$5+" : formatMoney(cost);
+                // Zone cards: how much the city wants this zone right now
+                if (isZoneTool(item.tool) && !locked) {
+                    const float d = demandForZoneTool(item.tool);
+                    const std::string label = std::string("Demand ") + (d >= 0.f ? "+" : "") + std::to_string(static_cast<int>(d));
+                    const sf::Color dc = d > 20.f ? GOOD : (d > 0.f ? WARN : BAD);
+                    const float bw = 44.f, bx = cb.left + cb.width - bw - 10.f, by = cb.top + 50.f;
+                    textRight(window, label, bx - 6.f, cb.top + 45.f, 10, dc, true);
+                    sf::RectangleShape track(sf::Vector2f(bw, 5.f));
+                    track.setPosition(bx, by);
+                    track.setFillColor(sf::Color(10, 13, 19, 220));
+                    window.draw(track);
+                    sf::RectangleShape fillBar(sf::Vector2f(bw * std::max(0.f, std::min(1.f, d / 100.f)), 5.f));
+                    fillBar.setPosition(bx, by);
+                    fillBar.setFillColor(dc);
+                    window.draw(fillBar);
+                }
                 text(window, price, tx, cb.top + 45.f, 12, affordable ? GOOD : BAD, true);
 
                 if (!item.hotkey.empty()) {

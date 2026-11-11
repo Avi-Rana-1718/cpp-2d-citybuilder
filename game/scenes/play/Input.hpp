@@ -140,6 +140,9 @@ void Play_Scene::handleToolHotkeys() {
     wasUndoKey = undoKey;
     wasLogKey = logKey;
 
+    bool minimapKey = sf::Keyboard::isKeyPressed(sf::Keyboard::M);
+    if (minimapKey && !wasMinimapKey) { settings.minimap = !settings.minimap; settings.save(); }
+    wasMinimapKey = minimapKey;
     bool statsKey = sf::Keyboard::isKeyPressed(sf::Keyboard::G);
     if (statsKey && !wasStatsKey) statsOpen = !statsOpen;
     wasStatsKey = statsKey;

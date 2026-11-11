@@ -136,6 +136,9 @@ void Play_Scene::renderWorld(float deltaTime) {
         }
     }
 
+    // PASS 2b: Night falls over the city (lit windows and street lights)
+    renderNight(viewL, viewR, viewT, viewB);
+
     // PASS 3: Drag & Build Ghost Preview & World Cursor
     renderDragPreview();
 
@@ -377,8 +380,11 @@ void Play_Scene::renderDragPreview() {
             if (ok) total += getToolCost(tool);
         }
         if (isDragging) toolbar.dragCostPreview = total;
-        if (isZoneTool(tool)) toolbar.pillNote = std::string(zoneDensityName(zoneDensity(zoneToolValue(tool)))) + ", grows to tier " +
-                                                 std::to_string(zoneMaxTier(zoneToolValue(tool)));
+        if (isZoneTool(tool)) {
+            const int d = static_cast<int>(toolbar.demandForZoneTool(tool));
+            toolbar.pillNote = std::string(zoneDensityName(zoneDensity(zoneToolValue(tool)))) + ", tier " +
+                               std::to_string(zoneMaxTier(zoneToolValue(tool))) + " - demand " + (d >= 0 ? "+" : "") + std::to_string(d);
+        }
         return;
     }
 

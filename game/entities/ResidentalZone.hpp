@@ -32,7 +32,7 @@ inline ResidentalZone::ResidentalZone(int posX, int posY, int initialTier, int i
     rootY = posY;
 
     tier = initialTier;
-    variant = (initialVariant >= 1 && initialVariant <= 2) ? initialVariant : ((std::rand() % 2) + 1);
+    variant = (initialVariant >= 1 && initialVariant <= VARIANT_COUNT) ? initialVariant : ((std::rand() % VARIANT_COUNT) + 1);
     level = 0;
     overallHappiness = 50;
 
@@ -99,13 +99,13 @@ inline void ResidentalZone::updateBuildingTexture() {
 }
 
 inline std::string ResidentalZone::getVariantName() const {
-    if (tier == 1) {
-        return (variant == 1) ? "Suburban Cottages" : "Bungalow Homestead";
-    } else if (tier == 2) {
-        return (variant == 1) ? "Brick Brownstone Apartments" : "Urban Condominiums";
-    } else {
-        return (variant == 1) ? "Highrise Luxury Tower" : "Twin Highrise Plaza";
-    }
+    static const char* names[3][VARIANT_COUNT] = {
+        {"Suburban Cottages", "Bungalow Homestead", "Blue Gable Cottages", "Garden Bungalows"},
+        {"Brick Brownstone Apartments", "Urban Condominiums", "Slate Row Apartments", "Mint Terrace Condos"},
+        {"Highrise Luxury Tower", "Twin Highrise Plaza", "Lavender Residences", "Skyline Twin Towers"}};
+    const int t = std::max(1, std::min(3, tier)) - 1;
+    const int v = std::max(1, std::min(VARIANT_COUNT, variant)) - 1;
+    return names[t][v];
 }
 
 inline void ResidentalZone::update(float deltaTime) {
@@ -136,7 +136,7 @@ inline void ResidentalZone::upgradeTier(int newTier) {
     if (newTier <= tier || newTier > 3) return;
     int prevCapacity = capacity;
     tier = newTier;
-    variant = (std::rand() % 2) + 1;
+    variant = (std::rand() % VARIANT_COUNT) + 1;
     level = tier - 1;
 
     if (tier == 2) {
@@ -155,7 +155,7 @@ inline void ResidentalZone::downgradeTier(int newTier) {
     if (newTier >= tier || newTier < 1) return;
     int prevCapacity = capacity;
     tier = newTier;
-    variant = (std::rand() % 2) + 1;
+    variant = (std::rand() % VARIANT_COUNT) + 1;
     level = tier - 1;
 
     if (tier == 2) {

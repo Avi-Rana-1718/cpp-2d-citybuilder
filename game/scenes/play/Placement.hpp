@@ -275,6 +275,7 @@ void Play_Scene::placeTile(int x, int y, BuildTool tool) {
     }
 
     int cost = spawningZoned ? 0 : getPlacementCost(x, y, tool);
+    minimapDirty = true;
 
     auto demolishAt = [&](int tx, int ty) {
         if (tx < 0 || tx >= tileMapW || ty < 0 || ty >= tileMapH) return;
@@ -597,7 +598,7 @@ int Play_Scene::growZones() {
                     z->zoned = true;
                     z->fixedTier = false;
                     z->maxTier = zoneMaxTier(zv);
-                    z->variant = 1 + static_cast<int>((h >> 4) % 2);
+                    z->variant = 1 + static_cast<int>((h >> 4) % VARIANT_COUNT);
                     if (auto* r = dynamic_cast<ResidentalZone*>(z)) r->updateBuildingTexture();
                     else if (auto* c = dynamic_cast<CommericalZone*>(z)) c->updateBuildingTexture();
                     else if (auto* i = dynamic_cast<IndustrialZone*>(z)) i->updateBuildingTexture();
@@ -639,6 +640,7 @@ void Play_Scene::onRoadsChanged(int x, int y) {
     refreshBuildingsAround(x, y); // access for lots on its border
     roadNet.rebuild();            // components and outside connection
     utilitiesDirty = true;        // utilities travel along roads
+    minimapDirty = true;
 }
 
 // Classifies every tile of a road drag. Land tiles build or upgrade; runs

@@ -21,7 +21,7 @@
 #include <sstream>
 
 inline const char* SAVE_MAGIC = "CHIMESAVE";
-const int SAVE_VERSION = 2;   // 2: + progress line
+const int SAVE_VERSION = 3;   // 2: + progress line, 3: + rank reached
 
 // Builds a 2x2 structure of the given entity name with its three sub tiles.
 // Returns the root, or NULL for an unknown name / blocked spot.
@@ -72,7 +72,7 @@ bool Play_Scene::writeCity(std::ostream& out) {
     out << "loans " << economy.loans.size();
     for (const Loan& l : economy.loans) out << ' ' << l.remainingDays << ' ' << l.dailyPayment;
     out << '\n';
-    out << "progress " << bestPopulation << ' ' << (milestonesEnabled ? 1 : 0) << '\n';
+    out << "progress " << bestPopulation << ' ' << (milestonesEnabled ? 1 : 0) << ' ' << rankReached << '\n';
 
     out << "tiles\n";
     for (int i = 0; i < tileMapW; i++) {
@@ -138,8 +138,9 @@ bool Play_Scene::readCity(std::istream& in, bool keepTime) {
     in >> word >> loanCount;
     std::vector<Loan> loans(loanCount);
     for (Loan& l : loans) in >> l.remainingDays >> l.dailyPayment;
-    int best = 0, ranked = 0;
+    int best = 0, ranked = 0, rankSaved = -1;
     if (version >= 2) in >> word >> best >> ranked;   // progress line
+    if (version >= 3) in >> rankSaved;
     if (!in || loanCount > 100) return loadFail("step 3");
 
     // Tiles go into a scratch copy first, so a broken file leaves the city alone
@@ -194,7 +195,7 @@ bool Play_Scene::readCity(std::istream& in, bool keepTime) {
         economy.setCarry(carry);
         economy.loans = loans;
         bestPopulation = best;
-        rankShown = rankForPopulation(best);
+        rankReached = rankSaved >= 0 ? std::min(rankSaved, CITY_RANK_COUNT - 1) : rankForPopulation(best);   // old saves: by population
         milestonesEnabled = version >= 2 ? ranked != 0 : true;
         undoStack.clear();
         notices.clear();
@@ -210,6 +211,7 @@ bool Play_Scene::readCity(std::istream& in, bool keepTime) {
     cars.clear();
     utilities.reset();
     services.reset();
+    minimapDirty = true;
 
     for (const RoadRec& r : roads) {
         if (!inWorldBounds(r.x, r.y)) continue;

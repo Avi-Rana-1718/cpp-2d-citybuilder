@@ -46,6 +46,7 @@ public:
     float landfillSpaceLeft = 0.f;
     int landfills = 0, fullLandfills = 0;
     int unservedGarbage = 0;
+    int garbageBuildings = 0;   // buildings that make garbage (for shares)
     int activeMines = 0;
     int burning = 0;
     bool grace = true;
@@ -128,10 +129,12 @@ public:
 
         garbageMade = garbageCollected = recycled = burnt = dumped = 0.f;
         unservedGarbage = 0;
+        garbageBuildings = 0;
         forEachRoot([&](Zone* z, int x, int y) {
             if (!makesGarbage(z)) return;
             float g = static_cast<float>(std::max(z->population, z->capacity / 10)) * GARBAGE_PER_CAPITA;
             garbageMade += g;
+            garbageBuildings++;
             int c = z->isActive ? componentOf(x, y) : -1;
             float room = 0.f;
             if (c >= 0)

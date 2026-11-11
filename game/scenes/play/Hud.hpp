@@ -110,6 +110,7 @@ void Play_Scene::renderHUD(float deltaTime) {
     renderInspectCard();
     toolbar.draw(_window, font, mouse);
     if (budgetOpen) renderBudget(mouse);
+    renderMinimap(mouse);
     renderLog(mouse);
     {   // Stats chip, left of the messages chip
         using namespace uikit;
@@ -153,7 +154,8 @@ void Play_Scene::renderTopBar(const sf::Vector2f& mouse) {
     // City name (hidden on narrow windows)
     if (sh == 0.f) {
         text(_window, "Chime City", 16.f, 9.f, 15, ACCENT, true);
-        text(_window, std::string(CITY_RANKS[cityRank()].name) + " - Year " + std::to_string(gameClock.getYear()), 16.f, 29.f, 10, TEXT_DIM);
+        text(_window, milestonesEnabled ? rankProgressText() : std::string(CITY_RANKS[cityRank()].name) + " - Year " + std::to_string(gameClock.getYear()),
+             16.f, 29.f, 10, TEXT_DIM);
     }
 
     // Treasury (click for the budget)

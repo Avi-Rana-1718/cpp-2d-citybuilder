@@ -21,7 +21,7 @@ sf::FloatRect Play_Scene::statsBounds() const {
 
 sf::FloatRect Play_Scene::statsTabBounds(int tab) const {
     sf::FloatRect b = statsBounds();
-    return sf::FloatRect(b.left + 20.f + static_cast<float>(tab) * 112.f, b.top + 52.f, 104.f, 30.f);
+    return sf::FloatRect(b.left + 20.f + static_cast<float>(tab) * 110.f, b.top + 52.f, 102.f, 30.f);
 }
 
 bool Play_Scene::handleStatsClick(const sf::Vector2f& p) {
@@ -80,7 +80,7 @@ void Play_Scene::renderStats(const sf::Vector2f& mouse) {
     roundedRect(_window, xb, 8.f, xb.contains(mouse) ? sf::Color(120, 40, 36) : PANEL_RAISED, BORDER, 1.f);
     textMid(_window, "x", xb.left + 10.f, xb.top - 1.f, xb.height, 15, TEXT_DIM, true);
 
-    const char* tabs[STATS_TABS] = {"Population", "Money", "Happiness", "Demand", "Trade"};
+    const char* tabs[STATS_TABS] = {"Population", "Money", "Happiness", "Demand", "Trade", "Rank"};
     for (int t = 0; t < STATS_TABS; t++) {
         sf::FloatRect tb = statsTabBounds(t);
         bool active = statsTab == t;
@@ -90,6 +90,10 @@ void Play_Scene::renderStats(const sf::Vector2f& mouse) {
     }
 
     sf::FloatRect chart(b.left + 20.f, b.top + 96.f, b.width - 40.f, 250.f);
+    if (statsTab == 5) {
+        renderRankTab(sf::FloatRect(chart.left, chart.top, chart.width, b.height - 110.f));
+        return;
+    }
     std::vector<float> a, c, d;
     for (const DaySample& s : history) {
         switch (statsTab) {

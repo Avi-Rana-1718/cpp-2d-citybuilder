@@ -6,7 +6,7 @@
 enum MenuButtonId {
     MB_CONTINUE, MB_NEW, MB_LOAD, MB_SAVE, MB_SETTINGS, MB_QUIT, MB_RESUME, MB_MAINMENU,
     MB_DIFF0, MB_DIFF1, MB_DIFF2, MB_REROLL, MB_SANDBOX, MB_CREATE, MB_BACK,
-    MB_SFX_DOWN, MB_SFX_UP, MB_AMB_DOWN, MB_AMB_UP, MB_CAM_DOWN, MB_CAM_UP, MB_AUTOSAVE, MB_TIPS
+    MB_SFX_DOWN, MB_SFX_UP, MB_AMB_DOWN, MB_AMB_UP, MB_CAM_DOWN, MB_CAM_UP, MB_AUTOSAVE, MB_TIPS, MB_DAYNIGHT, MB_MINIMAP
 };
 
 static bool fileExists(const std::string& path) {
@@ -64,7 +64,7 @@ std::vector<Play_Scene::MenuButton> Play_Scene::menuButtons() const {
             add(MB_BACK, "Back");
             break;
         case MENU_SETTINGS: {
-            y -= 40.f;
+            y -= 110.f;
             stepper(MB_SFX_DOWN, MB_SFX_UP, "Sound effects " + std::to_string(settings.sfxVolume) + "%");
             stepper(MB_AMB_DOWN, MB_AMB_UP, "City ambience " + std::to_string(settings.ambientVolume) + "%");
             char cam[32];
@@ -72,6 +72,8 @@ std::vector<Play_Scene::MenuButton> Play_Scene::menuButtons() const {
             stepper(MB_CAM_DOWN, MB_CAM_UP, cam);
             add(MB_AUTOSAVE, settings.autosave ? "[x] Autosave monthly" : "[ ] Autosave monthly", true, settings.autosave);
             add(MB_TIPS, settings.tips ? "[x] Show tips" : "[ ] Show tips", true, settings.tips);
+            add(MB_DAYNIGHT, settings.dayNight ? "[x] Day and night" : "[ ] Day and night", true, settings.dayNight);
+            add(MB_MINIMAP, settings.minimap ? "[x] Minimap  (M)" : "[ ] Minimap  (M)", true, settings.minimap);
             add(MB_BACK, "Back");
             break;
         }
@@ -130,6 +132,8 @@ void Play_Scene::handleMenuClick(int id) {
         case MB_CAM_UP:   settings.cameraSpeed += 0.25f; settings.clamp(); break;
         case MB_AUTOSAVE: settings.autosave = !settings.autosave; break;
         case MB_TIPS: settings.tips = !settings.tips; break;
+        case MB_DAYNIGHT: settings.dayNight = !settings.dayNight; break;
+        case MB_MINIMAP: settings.minimap = !settings.minimap; break;
         default: break;
     }
 }
@@ -140,7 +144,7 @@ void Play_Scene::beginNewCity(uint32_t seed, int difficulty, bool sandbox) {
     startNewCity(seed);
     money = GameSettings::startingMoneyFor(difficulty);
     bestPopulation = 0;
-    rankShown = 0;
+    rankReached = 0;
     milestonesEnabled = !sandbox;
     if (sandbox) {
         starterCity = true;
@@ -234,30 +238,6 @@ void Play_Scene::renderMenu(const sf::Vector2f& mouse) {
         const std::string hint = "F5 save  -  F9 load  -  Esc pause  -  Z undo  -  L messages  -  G stats";
         text(_window, hint, (SW() - textWidth(hint, 10)) / 2.f, panelR.top + panelR.height + 14.f, 10, TEXT_DIM);
     }
-}
-
-// ---- ranks ----
-void Play_Scene::checkMilestones() {
-    const int pop = townPopulation[0] + townPopulation[1] + townPopulation[2];
-    bestPopulation = std::max(bestPopulation, pop);
-    const int rank = cityRank();
-    if (rank <= rankShown) return;
-    for (int r = rankShown + 1; r <= rank; r++) {
-        if (!milestonesEnabled) continue;
-        money += CITY_RANKS[r].reward;
-        std::string unlocked;
-        for (int t = TOOL_NONE + 1; t <= TOOL_SEWAGE_PLANT; t++) {
-            if (toolRank(static_cast<BuildTool>(t)) != r) continue;
-            std::string name = toolbar.titleOf(static_cast<BuildTool>(t));
-            if (name.empty()) continue;
-            if (!unlocked.empty()) unlocked += ", ";
-            unlocked += name;
-        }
-        notify(std::string("Chime is now a ") + CITY_RANKS[r].name + "! +" + uikit::formatMoney(CITY_RANKS[r].reward) +
-               (unlocked.empty() ? std::string() : " - new: " + unlocked), false);
-        audio.play("milestone");
-    }
-    rankShown = rank;
 }
 
 // ---- tips ----

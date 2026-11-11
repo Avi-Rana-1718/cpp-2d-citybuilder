@@ -33,7 +33,7 @@ inline IndustrialZone::IndustrialZone(int posX, int posY, int initialTier, int i
     rootY = posY;
 
     tier = initialTier;
-    variant = (initialVariant >= 1 && initialVariant <= 2) ? initialVariant : ((std::rand() % 2) + 1);
+    variant = (initialVariant >= 1 && initialVariant <= VARIANT_COUNT) ? initialVariant : ((std::rand() % VARIANT_COUNT) + 1);
     level = 0;
     overallHappiness = 50;
 
@@ -101,13 +101,13 @@ inline void IndustrialZone::updateBuildingTexture() {
 }
 
 inline std::string IndustrialZone::getVariantName() const {
-    if (tier == 1) {
-        return (variant == 1) ? "Scrap Workshop & Foundry" : "Storage Yard & Warehouse";
-    } else if (tier == 2) {
-        return (variant == 1) ? "Manufacturing Plant" : "Heavy Machine Assembly";
-    } else {
-        return (variant == 1) ? "Microchip Clean-Fab" : "Robotics Distribution Hub";
-    }
+    static const char* names[3][VARIANT_COUNT] = {
+        {"Scrap Workshop & Foundry", "Storage Yard & Warehouse", "Blue Shed Workshop", "Ochre Yard & Depot"},
+        {"Manufacturing Plant", "Heavy Machine Assembly", "Steel Works", "Assembly Halls"},
+        {"Microchip Clean-Fab", "Robotics Distribution Hub", "Optics Clean-Fab", "Automation Campus"}};
+    const int t = std::max(1, std::min(3, tier)) - 1;
+    const int v = std::max(1, std::min(VARIANT_COUNT, variant)) - 1;
+    return names[t][v];
 }
 
 inline void IndustrialZone::update(float deltaTime) {
@@ -138,7 +138,7 @@ inline void IndustrialZone::upgradeTier(int newTier) {
     if (newTier <= tier || newTier > 3) return;
     int prevCapacity = capacity;
     tier = newTier;
-    variant = (std::rand() % 2) + 1;
+    variant = (std::rand() % VARIANT_COUNT) + 1;
     level = tier - 1;
 
     if (tier == 2) {
@@ -157,7 +157,7 @@ inline void IndustrialZone::downgradeTier(int newTier) {
     if (newTier >= tier || newTier < 1) return;
     int prevCapacity = capacity;
     tier = newTier;
-    variant = (std::rand() % 2) + 1;
+    variant = (std::rand() % VARIANT_COUNT) + 1;
     level = tier - 1;
 
     if (tier == 2) {

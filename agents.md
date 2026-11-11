@@ -31,10 +31,10 @@ The build copies the SFML DLLs and `assets/` into `build/`.
 | `--zoom Z` | Starting camera zoom (0.4-3.2) |
 | `--shot file.png` | Save a screenshot when `--bench` ends |
 | `--bench-city` / `--bench-town` | Pre-build a ~650-building grid city / an ~18-building starter town (its two streets are joined and run out to the nearest map edge) |
-| `--starter` | Showcase town: the starter town plus asphalt main street, avenue link, roundabout on a spur junction and the full utility chain (coal plant, transformer, pump, treatment, tower, plus an off-road wind farm on a power line and a well on a pipe), medium-density R and low-density C zones along a NE spur that fill during the warm-up, with a $75k sandbox treasury and 60 days pre-simulated. Prints each utility's tile for `--inspect` |
+| `--starter` | Showcase town: the starter town plus asphalt main street, avenue link, roundabout on a spur junction and the full utility chain (coal plant, transformer, pump, treatment, tower, plus an off-road wind farm on a power line and a well on a pipe), medium-density R and low-density C zones along a NE spur that fill during the warm-up, with a $150k sandbox treasury and 60 days pre-simulated. Prints each utility's tile for `--inspect` |
 | `--load file.sav` / `--save file.sav` | Open a saved city at start-up / save the city when `--bench` ends |
 | `--bench-metro` | A zoned grid city (~1,300-2,000 people) with every utility and service, for late-game balance |
-| `--title`, `--stats` | Open on the title screen / with the statistics panel (screenshots). A plain start (no options at all) opens the title screen |
+| `--title`, `--stats` | Open on the title screen / with the statistics panel on its Rank tab (screenshots). A plain start (no options at all) opens the title screen |
 | `--fast-forward N` | Simulate N days at start-up, printing money, population, demand and traffic congestion every 30 days (balance testing) |
 | `--menu N`, `--inspect X Y`, `--view N`, `--budget`, `--messages` | Screenshot helpers: open build category N (1-7), select a tile, set the map view (0-8: 4 Traffic, 5 Power, 6 Water, 7 Land value, 8 Services; power / water tools switch to their view automatically), open the budget / the message log |
 
@@ -48,13 +48,14 @@ Typical checks:
 
 | Input | Action |
 |---|---|
-| **Left sidebar** | Category icons (Inspect, Residential, Commercial, Industry & Farms, Civic & Ports, Roads, Power & Water) open a flyout of build cards |
+| **Left sidebar** | Category icons (Inspect, Residential, Commercial, Industry & Farms, Civic & Ports, Roads, Power & Water, Waste & Sewage) open a flyout of build cards (two columns when the window is short). Zone cards show the current demand |
 | **Left click + drag** | Build; roads / water / demolish drag along a path or area with a live preview. Road drags show build (green), upgrade (yellow), bridge (blue), skipped (grey) and blocked (red) tiles, and the pill shows the drag's total cost |
 | **Right click** | Cancel drag, or return to Inspect |
 | `W A S D` / arrows, `Q E` / `+ -` | Pan (`Shift` faster), zoom 0.4×-3.2× |
-| Hotkeys | `Esc` Inspect (also closes the budget), `R` `C` `I` low-density R/C/I zone, `F` Farm, `1` `2` `3` School/Church/Park, `H` Harbour, `Space` Road, `W` Water (only when no tool is active), `X` Demolish, `U` Power & Water, `Esc` (nothing to cancel) pause menu, `G` statistics, `O` map view, `B` budget, `F5` save (`city.sav`), `F9` load (`city.sav`, else `autosave.sav`), `Z` undo the last build, `L` message log, `P` pause, `[` `]` slower/faster, `N` new city after bankruptcy |
+| Hotkeys | `Esc` Inspect (also closes the budget), `R` `C` `I` low-density R/C/I zone, `F` Farm, `1` `2` `3` School/Church/Park, `H` Harbour, `Space` Road, `W` Water (only when no tool is active), `X` Demolish, `U` Power & Water, `Esc` (nothing to cancel) pause menu, `G` statistics, `M` minimap, `O` map view, `B` budget, `F5` save (`city.sav`), `F9` load (`city.sav`, else `autosave.sav`), `Z` undo the last build, `L` message log, `P` pause, `[` `]` slower/faster, `N` new city after bankruptcy |
 | Top bar | Money chip (click = budget), population + 9 demand bars, happiness, date/season, speed buttons |
-| Top right | Map View toggles (Normal / Fertility / Groundwater / Deposits / Traffic / Power / Water) and the inspect card |
+| Top right | Map View toggles (Normal / Fertility / Groundwater / Deposits / Traffic / Power / Water / Land value / Services) and the inspect card |
+| Bottom right | Minimap (click to move the camera), Stats and Messages chips |
 
 Keyboard and mouse are ignored while the window is unfocused, because `sf::Keyboard` / `sf::Mouse` read global device state.
 
@@ -162,10 +163,13 @@ GameEngine (src/GameEngine.hpp)        window, loop, events (close / resize), as
 - **Undo** also covers tax slider changes (`UndoStep::taxOnly`).
 - **Save / load** (`game/scenes/SaveGame.hpp`): plain text, `CHIMESAVE 1`: seed / money / spawn, clock, taxes, economy, loans, every tile's `TileData`, roads (tier, bridge axis, roundabout) and buildings (name, tier, variant, population, capacity, fixedTier, zoned, maxTier, happiness, kind, stored). Everything derived is rebuilt on load. `readCity(in, keepTime)` with `keepTime` is how **undo** works: each drag action snapshots the city first (`executeMultibuild`, last 10), and undo restores the map but keeps the calendar and refunds what the action cost. Autosave to `autosave.sav` monthly and on close (not in benchmarks / headless). `loadError` says why a load failed.
 - **Menus** (`play/Menu.hpp`): title screen (Continue / New City / Load / Settings / Quit; the map orbits behind it), pause menu on `Esc`, New City (difficulty = starting money $50k / $20k / $10k, seed reroll, sandbox = the starter town with everything unlocked), Settings (sound / ambience volume, camera speed, autosave, tips) saved to `settings.cfg` (`src/Settings.hpp`). While a menu is open the city is frozen (`updateMenu` replaces `update`).
-- **City ranks** (`CITY_RANKS`, `toolRank()` in `Toolbar.hpp`): Settlement → Village 300 → Town 1,000 → City 2,500 → Metropolis 5,000 by best population ever; each pays a bonus and unlocks tools (asphalt, medium zones, police, clinic... at Village; avenues, high density, coal, incinerator, mines, harbours at Town; recycling at City). Only in normal play (`milestonesEnabled`; sandbox, dev runs and tests have everything). Locked cards show what unlocks them. Saved (save version 2 adds a `progress` line).
+- **City ranks** (`CITY_RANKS`, `toolRank()` in `Toolbar.hpp`, checks in `play/Progress.hpp`): Settlement → Village → Town → City → Metropolis. A rank needs population (300 / 1,000 / 2,500 / 5,000), happiness (45 / 50 / 55 / 60%) **and services**, cumulative: Village = power & water and garbage pickup for 95% of buildings; Town + a school, police, fire station and clinic; City + sewers for 90% of homes, a bus depot, education 40 and land value 40; Metropolis + education 60, land value 50, recycling or an incinerator and traffic under capacity. `checkMilestones()` (daily) climbs every rank whose `rankRequirements()` are all met; `rankReached` never goes down (save version 3). The top bar shows "next Town 5/8" and the stats panel's Rank tab the checklist. Each rank pays a bonus and unlocks tools (asphalt, medium zones, police, clinic... at Village; avenues, high density, coal, incinerator, mines, harbours at Town; recycling at City). Only in normal play (`milestonesEnabled`; sandbox, dev runs and tests have everything). Locked cards show what unlocks them. Saved (save version 2 adds a `progress` line).
 - **Tips** (`computeTip()`): the first thing a new city is missing (road, zones, jobs, power, water, garbage, fire station, school, money), shown above the toast; `x` turns tips off.
 - **Trade** (`TradeSystem.hpp`): daily goods (industry by tier, mines) and food (farms) made vs used (residents, shops); the surplus is exported and shortfalls imported (+30%), both through the trade capacity (200 per road tile leaving the map, ×2 asphalt / ×3 avenue, + 500 per harbour). Unimportable needs cut commercial demand, unshippable goods cut industrial demand; income / cost appear in the budget.
 - **Statistics** (`play/Stats.hpp`, `G`): 360-day history of population, money / net, happiness, demand and trade, plus today's trade breakdown.
+- **Building variants**: R / C / I have 4 looks per tier (`VARIANT_COUNT`); v3 / v4 are recoloured from v1 / v2 by `tools/gen_variants.py`.
+- **Day and night** (`play/Polish.hpp`, setting `dayNight`): a light cycle every 6 game days; at night a blue wash covers the map (normal view only), powered occupied buildings show lit windows and roads street lights (additive blending).
+- **Minimap** (`play/Polish.hpp`, `M`, setting `minimap`): every tile as a diamond of its terrain / structure / zone colour, rebuilt twice a second, with the camera rectangle; click to jump.
 - **Audio** (`src/Audio.hpp`, sounds from `tools/gen_sounds.py`): clicks, build / road / bulldoze sounds once per action, error buzz, alert on warnings, milestone fanfare, a city ambience loop and a fire crackle while something burns. Never initialised in tests or headless runs.
 - **Daily work is staggered**: the economy runs on the day boundary, services / fires / land value / tips on the next frame (`servicesDue`), and the commute model from midday a slice of 40 homes per frame (`TrafficSystem::begin / step`); `update()` still runs a whole day at once for tests and `--fast-forward`.
 - **Messages**: `notify()` = toast + entry in the message log (`L` or the bottom-right chip): shortages, debt, fires, saves.
@@ -229,7 +233,7 @@ A small custom framework (`tests/test_framework.hpp`). Areas covered:
 - **Build menu**: layout, flyout click flow, tool names, `toolCost()` consistency.
 - **Placement & roads**: road / water / forest / rock blocking, edge-sharing road access, on-change re-checks, all 16 autotile masks, edge-connected drag paths, tier upgrades, bridge rules, roundabouts, outside connection, demolition restoring terrain.
 - **Traffic**: commute routing and loads, capacity by tier, the happiness penalty, cars staying on roads.
-- **Menus / ranks / trade / stats**: settings save + clamp, rank unlocks and rewards, trade exports / imports / shortages, partial garbage pickup, resumable traffic = full day, capped history, new city flow.
+- **Menus / ranks / trade / stats**: settings save + clamp, ranks needing population + happiness + services (and never dropping), unlocks and rewards, trade exports / imports / shortages, partial garbage pickup, resumable traffic = full day, capped history, new city flow.
 - **Waste / sewage / buses**: disposal order and landfill filling up, incinerator power, sewage grace / plants / outflow placement / health, tax undo, buses leaving depots.
 - **Save / undo / services**: save round trip (and bad files change nothing), undo refunds, coverage and garbage by road network, fires burning down / put out, mines (deposit rule, depletion, tax) and buses (fewer trips), land value formula and its upgrade / growth gates.
 - **Zones**: painting / dezoning, growth with demand and road, no growth on bad lots, density caps upgrades, placed buildings keep their tier, demolished lots regrow.
@@ -255,16 +259,22 @@ cpp-2d-citybuilder/
 │   └── images/                 # README screenshots
 ├── assets/
 │   ├── Hack.ttf
-│   └── sprites/                # Buildings, terrain, roads; ui/ = HUD icons
-├── tools/                      # gen_terrain_sprites.py, gen_ui_icons.py, older sprite tools
+│   ├── sounds/                 # Synthesised effects + ambience (tools/gen_sounds.py)
+│   └── sprites/                # Buildings, terrain, roads, utilities, services; ui/ = HUD icons
+├── tools/                      # gen_terrain_sprites, gen_road_sprites, gen_utility_sprites,
+│                               # gen_variants, gen_ui_icons, gen_sounds (+ older sprite tools)
 ├── tests/                      # test_framework.hpp, test_main.cpp
-├── src/                        # _global.hpp, GameEngine.hpp, Scene.hpp, Entity.hpp,
-│                               # AssetManager.hpp, HeadlessWindow.cpp
+├── src/                        # _global, GameEngine, Scene, Entity, AssetManager, Settings,
+│                               # Audio, HeadlessWindow.cpp
 └── game/
     ├── main.hpp
-    ├── scenes/                 # Play_Scene.hpp (Menu_Scene stub)
-    ├── entities/               # _Zone, R/C/I, Farm, Harbour, School, Church, Park, SubZone, Player, roads/
-    ├── world/                  # WorldData, WorldGen, GroundRenderer
-    ├── simulation/             # Economy, EconomyData, GameClock, HappinessSystem
+    ├── scenes/
+    │   ├── Play_Scene.hpp      # Class, start-up, time and day flow
+    │   ├── SaveGame.hpp        # Save / load / undo snapshots
+    │   └── play/               # Input, Placement, Towns, WorldRender, Hud, Menu, Stats,
+    │                           # Polish (day / night, minimap), Progress (ranks)
+    ├── entities/               # _Zone, R/C/I, Farm, Harbour, School, Church, Park, Utility, Service, SubZone, roads/
+    ├── world/                  # WorldData, WorldGen, GroundRenderer, RoadNetwork, CarRenderer
+    ├── simulation/             # Economy, EconomyData, GameClock, Happiness, Traffic, Utility, Service, Trade
     └── ui/                     # UiKit, Toolbar, Window (legacy)
 ```

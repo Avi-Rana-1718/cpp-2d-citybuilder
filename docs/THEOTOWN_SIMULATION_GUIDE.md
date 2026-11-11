@@ -103,16 +103,16 @@ All 2×2 buildings need a land road (any tier, not a bridge deck) on one of the 
 - **Placed buildings:** the building cards under the zones place that exact building. It keeps its tier forever (no upgrade, no downgrade) but still fills only while its income level has demand.
 
 ### Ranks and unlocks
-A new city starts as a **Settlement**. The best population it ever reaches decides its rank, and each rank pays a one-off bonus and unlocks buildings:
+A new city starts as a **Settlement**. A rank needs **population, happiness and services at the same time**; requirements build on each other, and a rank once reached is never lost. Each rank pays a one-off bonus and unlocks buildings:
 
-| Rank | People | Bonus | Unlocks |
-|---|---|---|---|
-| Village | 300 | $5,000 | Asphalt, medium-density zones, placed tier-2 buildings, police, clinic, church, solar, pumps, water treatment & towers, bus depot, sewage outflow |
-| Town | 1,000 | $15,000 | Avenues, roundabouts, high-density zones, placed tier-3 buildings, coal, incinerator, sewage treatment, mines, harbours |
-| City | 2,500 | $30,000 | Recycling centres |
-| Metropolis | 5,000 | $60,000 | - |
+| Rank | People | Happiness | Also needs | Bonus | Unlocks |
+|---|---|---|---|---|---|
+| Village | 300 | 45% | Power and water for 95% of buildings, garbage collected for 95% | $5,000 | Asphalt, medium-density zones, placed tier-2 buildings, police, clinic, church, solar, pumps, water treatment & towers, bus depot, sewage outflow |
+| Town | 1,000 | 50% | + a school, police station, fire station and clinic | $15,000 | Avenues, roundabouts, high-density zones, placed tier-3 buildings, coal, incinerator, sewage treatment, mines, harbours |
+| City | 2,500 | 55% | + sewers for 90% of homes, a bus depot, education 40+, land value 40+ | $30,000 | Recycling centres |
+| Metropolis | 5,000 | 60% | + education 60+, land value 50+, recycling or an incinerator, traffic under capacity | $60,000 | - |
 
-Sandbox cities (New City → Sandbox) have everything unlocked.
+The top bar shows how many of the next rank's requirements are met; the statistics panel (`G`) has a **Rank** tab with the full checklist. Sandbox cities have everything unlocked.
 
 ### Trade
 Industry makes goods (1 / 1.4 / 2 per worker by tier, mines 0.5), farms make food (2 per farmer × soil × season). Residents use 0.1 goods and 0.15 food each, shop workers 0.2 goods. The surplus is **exported** ($0.50 per good, $0.35 per food) and shortfalls **imported** for 30% more, both limited by the **trade capacity**: 200 a day for every dirt road leaving the map (asphalt ×2, avenue ×3) plus 500 per harbour. Needs nobody can import make shops lose customers; goods nobody can ship make industry lose orders. The statistics panel (`G`) shows the breakdown.

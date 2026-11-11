@@ -141,6 +141,7 @@ const int ZONE_COST_PER_TILE = 5;         // painting a zone
 const int ZONE_GROWTH_DEMAND_STEP = 30;    // one extra building a day per 30 demand
 const int ZONE_GROWTH_MAX_PER_DAY = 3;     // per sector
 
+const int VARIANT_COUNT = 4;              // looks per R / C / I tier (v3 / v4 from tools/gen_variants.py)
 const int STARTING_MONEY = 20000;
 const int STARTER_SANDBOX_MONEY = 150000;   // --starter showcase town
 

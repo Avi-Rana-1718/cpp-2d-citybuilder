@@ -988,7 +988,7 @@ TEST_CASE(Test_Zone_TiersVariantsAndHappinessProgression) {
     ASSERT_EQ(res.footprintW, 2);
     ASSERT_EQ(res.footprintH, 2);
     ASSERT_EQ(res.tier, 1);
-    ASSERT_TRUE(res.variant == 1 || res.variant == 2);
+    ASSERT_TRUE(res.variant >= 1 && res.variant <= VARIANT_COUNT);
     ASSERT_EQ(res.zoneBaseTexture, "zone_residental");
 
     int initialCap = res.capacity;
@@ -3318,22 +3318,48 @@ TEST_CASE(Test_Milestones_UnlockAndReward) {
     money = 10000;
     utilRoadRow(10, 0, 30);
     std::string reason;
-    ASSERT_FALSE(scene.canPlaceTile(5, 5, TOOL_ROAD_AVENUE, &reason));
-    ASSERT_EQ(reason, std::string("Unlocks when Chime becomes a Town (1000 people)"));
+    ASSERT_FALSE(scene.canPlaceTile(5, 5, TOOL_ROAD_ASPHALT, &reason));
+    ASSERT_EQ(reason, std::string("Unlocks when Chime becomes a Village (300 people)"));
     ASSERT_TRUE(scene.canPlaceTile(5, 5, TOOL_ROAD));
 
+    // Population alone is not enough: happiness and services are missing
+    townPopulation[0] = 400;
+    scene.happinessSystem.cityHappiness = 30;
+    scene.checkMilestones();
+    ASSERT_EQ(scene.cityRank(), 0);
+    auto checks = scene.rankRequirements(1);
+    ASSERT_TRUE(checks[0].met);                                          // citizens
+    ASSERT_FALSE(checks[1].met);                                         // happiness
+
+    // Happy, powered, watered, garbage collected: Village (+ bonus)
+    scene.happinessSystem.cityHappiness = 60;
+    utilities.consumers = 10; utilities.unpowered = 0; utilities.unwatered = 0;
+    services.garbageBuildings = 10; services.unservedGarbage = 0;
+    scene.checkMilestones();
+    ASSERT_EQ(scene.cityRank(), 1);
+    ASSERT_EQ(money, 10000 + CITY_RANKS[1].reward);
+    ASSERT_TRUE(scene.canPlaceTile(5, 5, TOOL_ROAD_ASPHALT));
+
+    // Town needs 1,000 people AND a school, police, fire station and clinic
     townPopulation[0] = 1200;
     scene.checkMilestones();
-    ASSERT_EQ(scene.cityRank(), 2);                                      // Village and Town in one go
-    ASSERT_EQ(money, 10000 + CITY_RANKS[1].reward + CITY_RANKS[2].reward);
-    ASSERT_TRUE(scene.canPlaceTile(5, 5, TOOL_ROAD_AVENUE));
-    ASSERT_FALSE(scene.canPlaceTile(4, 11, TOOL_RECYCLING));             // a City building
-
-    townPopulation[0] = 100;                                             // ranks never go back down
+    ASSERT_EQ(scene.cityRank(), 1);
+    ASSERT_FALSE(scene.canPlaceTile(5, 5, TOOL_ROAD_AVENUE));
+    int x = 3;
+    for (BuildTool t : {TOOL_SCHOOL, TOOL_POLICE, TOOL_FIRE_STATION, TOOL_CLINIC}) {
+        scene.milestonesEnabled = false;                                 // place them regardless of rank
+        scene.placeTile(x, 11, t);
+        x += 3;
+    }
+    scene.milestonesEnabled = true;
     scene.checkMilestones();
     ASSERT_EQ(scene.cityRank(), 2);
-    scene.milestonesEnabled = false;                                     // sandbox / dev runs: all unlocked
-    ASSERT_TRUE(scene.canPlaceTile(4, 11, TOOL_RECYCLING));
+    ASSERT_TRUE(scene.canPlaceTile(5, 5, TOOL_ROAD_AVENUE));
+
+    // Ranks never drop
+    townPopulation[0] = 100;
+    scene.checkMilestones();
+    ASSERT_EQ(scene.cityRank(), 2);
     townPopulation[0] = 0;
     clearTestGrid();
 }

@@ -13,6 +13,8 @@ struct GameSettings {
     float cameraSpeed = 1.f;   // 0.5-2.0
     bool autosave = true;
     bool tips = true;
+    bool dayNight = true;      // day / night lighting cycle
+    bool minimap = true;
     int difficulty = 1;        // 0 easy, 1 normal, 2 hard (starting money)
 
     static int startingMoneyFor(int difficulty) {
@@ -33,6 +35,8 @@ struct GameSettings {
             else if (key == "autosave") value >> autosave;
             else if (key == "tips") value >> tips;
             else if (key == "difficulty") value >> difficulty;
+            else if (key == "daynight") value >> dayNight;
+            else if (key == "minimap") value >> minimap;
         }
         clamp();
     }
@@ -40,7 +44,8 @@ struct GameSettings {
     void save(const std::string& path = "settings.cfg") const {
         std::ofstream out(path, std::ios::trunc);
         out << "sfx=" << sfxVolume << "\nambient=" << ambientVolume << "\ncamera=" << cameraSpeed
-            << "\nautosave=" << autosave << "\ntips=" << tips << "\ndifficulty=" << difficulty << "\n";
+            << "\nautosave=" << autosave << "\ntips=" << tips << "\ndifficulty=" << difficulty
+            << "\ndaynight=" << dayNight << "\nminimap=" << minimap << "\n";
     }
 
     void clamp() {

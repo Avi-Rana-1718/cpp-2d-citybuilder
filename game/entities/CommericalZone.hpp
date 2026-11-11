@@ -32,7 +32,7 @@ inline CommericalZone::CommericalZone(int posX, int posY, int initialTier, int i
     rootY = posY;
 
     tier = initialTier;
-    variant = (initialVariant >= 1 && initialVariant <= 2) ? initialVariant : ((std::rand() % 2) + 1);
+    variant = (initialVariant >= 1 && initialVariant <= VARIANT_COUNT) ? initialVariant : ((std::rand() % VARIANT_COUNT) + 1);
     level = 0;
     overallHappiness = 50;
 
@@ -97,13 +97,13 @@ inline void CommericalZone::updateBuildingTexture() {
 }
 
 inline std::string CommericalZone::getVariantName() const {
-    if (tier == 1) {
-        return (variant == 1) ? "Corner Grocery & Bakery" : "Local Diner & Mini Mart";
-    } else if (tier == 2) {
-        return (variant == 1) ? "Two-Story Shopping Plaza" : "Department Store Arcade";
-    } else {
-        return (variant == 1) ? "Corporate Banking Skyscraper" : "International Financial Center";
-    }
+    static const char* names[3][VARIANT_COUNT] = {
+        {"Corner Grocery & Bakery", "Local Diner & Mini Mart", "Blue Awning Grocery", "Corner Cafe & Deli"},
+        {"Two-Story Shopping Plaza", "Department Store Arcade", "Harbour View Plaza", "Market Hall Arcade"},
+        {"Corporate Banking Skyscraper", "International Financial Center", "Glass Exchange Tower", "Trade Center Spire"}};
+    const int t = std::max(1, std::min(3, tier)) - 1;
+    const int v = std::max(1, std::min(VARIANT_COUNT, variant)) - 1;
+    return names[t][v];
 }
 
 inline void CommericalZone::update(float deltaTime) {
@@ -134,7 +134,7 @@ inline void CommericalZone::upgradeTier(int newTier) {
     if (newTier <= tier || newTier > 3) return;
     int prevCapacity = capacity;
     tier = newTier;
-    variant = (std::rand() % 2) + 1;
+    variant = (std::rand() % VARIANT_COUNT) + 1;
     level = tier - 1;
 
     if (tier == 2) {
@@ -153,7 +153,7 @@ inline void CommericalZone::downgradeTier(int newTier) {
     if (newTier >= tier || newTier < 1) return;
     int prevCapacity = capacity;
     tier = newTier;
-    variant = (std::rand() % 2) + 1;
+    variant = (std::rand() % VARIANT_COUNT) + 1;
     level = tier - 1;
 
     if (tier == 2) {

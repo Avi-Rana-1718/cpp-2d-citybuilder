@@ -21,7 +21,8 @@ Every game starts on a procedurally generated 64×64 island. Build roads, homes,
 - **City services:** police (safety), fire stations (fires can break out and spread in bigger towns), clinics (health), bus depots (fewer cars, with buses on the roads) and mines on coal / iron / stone deposits.
 - **Waste and sewage:** garbage has to go somewhere: landfills fill up for good, incinerators burn it (polluting, but they make power) and recycling centres handle it cleanly. Waste water needs a sewage outflow into a lake or the sea (polluting) or a treatment plant.
 - **Land value:** parks, schools, shops, services and water raise it; pollution and jams lower it. Buildings need it to upgrade.
-- **Menus and progression:** a title screen, pause menu, difficulty choice and settings. The city grows from Settlement to Metropolis; each rank pays a bonus and unlocks new buildings, and tips guide a new mayor.
+- **Menus and progression:** a title screen, pause menu, difficulty choice and settings. The city climbs from Settlement to Metropolis, and each rank needs enough people, enough happiness and the right services (power, water, garbage, then schools, police, fire, health, then sewers, buses, education and land value). Each rank pays a bonus and unlocks buildings; the Rank tab (`G`) shows the checklist, and tips guide a new mayor.
+- **Looks:** four variants per building tier, a day / night cycle with lit windows and street lights, and a clickable minimap (`M`).
 - **Trade:** industry and farms produce goods and food; the surplus is exported over roads leaving the map and through harbours, shortages are imported.
 - **Statistics and sound:** `G` shows graphs of population, money, happiness, demand and trade; synthesised sound effects and city ambience.
 - **Save, load and undo:** `F5` saves, `F9` loads, the city autosaves monthly and on exit, and `Z` undoes the last build. `L` opens the message log.
@@ -80,7 +81,8 @@ The build copies the SFML DLLs, the font and all sprites into `build/`.
 | `F5` / `F9` | Save / load (`city.sav`; the autosave if there is none) |
 | `Z` | Undo the last build |
 | `L` | Message log |
-| `G` | Statistics |
+| `G` | Statistics (incl. the rank checklist) |
+| `M` | Minimap |
 | `Esc` | Pause menu (when no tool is selected) |
 | `N` | Found a new city after bankruptcy |
 

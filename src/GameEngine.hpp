@@ -132,6 +132,14 @@ GameEngine::GameEngine() {
     assets.addTexture("ind_t3_v1", "ind_t3_v1.png");
     assets.addTexture("ind_t3_v2", "ind_t3_v2.png");
 
+    // Extra looks (tools/gen_variants.py)
+    for (const char* prefix : {"res", "com", "ind"})
+        for (int t = 1; t <= 3; t++)
+            for (int v = 3; v <= VARIANT_COUNT; v++) {
+                std::string key = std::string(prefix) + "_t" + std::to_string(t) + "_v" + std::to_string(v);
+                assets.addTexture(key, key + ".png");
+            }
+
     // 2x2 Farm Variants
     assets.addTexture("farm_v1", "farm_v1.png");
     assets.addTexture("farm_v2", "farm_v2.png");

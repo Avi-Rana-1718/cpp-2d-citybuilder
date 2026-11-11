@@ -205,7 +205,7 @@ public:
     struct DaySample { int population = 0, money = 0, net = 0, happiness = 0; int demand[3] = {0, 0, 0}; float exports = 0.f, imports = 0.f; };
     std::deque<DaySample> history;
     static constexpr size_t HISTORY_DAYS = 360;
-    static constexpr int STATS_TABS = 5;
+    static constexpr int STATS_TABS = 6;
     bool statsOpen = false;
     int statsTab = 0;
     bool wasStatsKey = false;
@@ -217,11 +217,31 @@ public:
     void drawChart(const sf::FloatRect& r, const std::vector<std::vector<float>>& series, const std::vector<sf::Color>& colors, bool symmetric);
     void renderStats(const sf::Vector2f& mouse);
 
+    // ---- Day / night and minimap (play/Polish.hpp) ----
+    static constexpr float DAYNIGHT_DAYS = 6.f;   // game days per light cycle
+    float nightAmount() const;
+    void renderNight(float viewL, float viewR, float viewT, float viewB);
+    sf::VertexArray minimapQuads;
+    float minimapScale = 0.05f;
+    bool minimapDirty = true;         // something on the map changed since the last rebuild
+    sf::FloatRect minimapBuiltFor;    // bounds the quads were built for (window resizes)
+    bool wasMinimapKey = false;
+    sf::FloatRect minimapBounds() const;
+    sf::Color minimapColor(int x, int y) const;
+    void rebuildMinimap();
+    bool handleMinimapClick(const sf::Vector2f& p);
+    void renderMinimap(const sf::Vector2f& mouse);
+
     // ---- City ranks (milestones) and tips ----
     bool milestonesEnabled = false;   // normal play only: tools unlock as the city grows
     int bestPopulation = 0;           // highest population reached (ranks never go down)
-    int rankShown = 0;
-    int cityRank() const { return rankForPopulation(bestPopulation); }
+    int rankReached = 0;              // ranks need population, happiness and services; never go down
+    int cityRank() const { return rankReached; }
+    struct RankCheck { std::string label; bool met; std::string value; };
+    std::vector<RankCheck> rankRequirements(int rank) const;
+    bool meetsRank(int rank) const;
+    std::string rankProgressText() const;
+    void renderRankTab(const sf::FloatRect& area);
     void checkMilestones();
     std::string tipText;
     std::string computeTip() const;
@@ -380,7 +400,7 @@ void Play_Scene::init() {
     setOverlayMode(startView);
     if (startBudget) setBudgetOpen(true);
     if (startLog) logOpen = true;
-    if (startStats) { statsOpen = true; statsTab = 4; }
+    if (startStats) { statsOpen = true; statsTab = 5; }
     if (showTitleMenu) {
         menuPage = MENU_TITLE;
         currentZoom = 1.3f;
@@ -481,6 +501,8 @@ void Play_Scene::update(float deltaTime) {
         return;
     }
     toolbar.unlockedRank = milestonesEnabled ? cityRank() : 99;
+    for (int s = 0; s < SECTOR_COUNT; s++)
+        for (int w = 0; w < WEALTH_COUNT; w++) toolbar.zoneDemand[s][w] = economy.demand[s][w];
     if (placementErrorTimer > 0.f) {
         placementErrorTimer -= deltaTime;
     }
@@ -514,10 +536,11 @@ void Play_Scene::update(float deltaTime) {
     // Check if mouse is interacting with UI elements
     bool overViewPanel = viewPanelBounds().contains(mousePixelF);
     bool overBudget = budgetOpen && budgetBounds().contains(mousePixelF);
+    bool overMinimap = settings.minimap && minimapBounds().contains(mousePixelF);
     bool overStats = statsChipBounds().contains(mousePixelF) || (statsOpen && statsBounds().contains(mousePixelF));
     bool overTip = settings.tips && milestonesEnabled && tipBounds().contains(mousePixelF);
     bool overLog = logChipBounds().contains(mousePixelF) || (logOpen && sf::FloatRect(uikit::SW() - 432.f, uikit::SH() - 420.f, 420.f, 356.f).contains(mousePixelF));
-    bool mouseOverUI = !focused || economy.bankrupt || toolbar.contains(mousePixelF) || overViewPanel || overLog || overTip || overStats ||
+    bool mouseOverUI = !focused || economy.bankrupt || toolbar.contains(mousePixelF) || overViewPanel || overLog || overTip || overStats || overMinimap ||
                        (mousePixelF.y <= 50.f) || inspectCardRect.contains(mousePixelF) || overBudget;
 
     bool isLeftPressed = focused && sf::Mouse::isButtonPressed(sf::Mouse::Left);
@@ -533,7 +556,9 @@ void Play_Scene::update(float deltaTime) {
     } else if (budgetOpen && handleBudgetPointer(mousePixelF, isLeftPressed, justPressed)) {
         // budget panel used the click / drag
     } else if (isLeftPressed && !wasLeftPressed && mouseOverUI) {
-        if (statsChipBounds().contains(mousePixelF)) {
+        if (overMinimap && !(statsOpen && statsBounds().contains(mousePixelF))) {
+            handleMinimapClick(mousePixelF);
+        } else if (statsChipBounds().contains(mousePixelF)) {
             statsOpen = !statsOpen;
         } else if (statsOpen && handleStatsClick(mousePixelF)) {
             // stats panel used the click
@@ -644,7 +669,7 @@ void Play_Scene::advanceTime(float realSeconds) {
 // Fires, mines, garbage and land value, once a day
 void Play_Scene::runServicesDay() {
     services.update();
-    if (services.runDay(gameClock.getTotalDays(), townPopulation[SECTOR_R])) utilitiesDirty = true;
+    if (services.runDay(gameClock.getTotalDays(), townPopulation[SECTOR_R])) { utilitiesDirty = true; minimapDirty = true; }
     for (const auto& e : services.events) {
         std::string what = e.name.substr(0, e.name.size() > 4 ? e.name.size() - 4 : e.name.size());   // "ResidentalZone" -> "Residental"
         if (what == "Residental") what = "Home";
@@ -698,6 +723,7 @@ bool Play_Scene::undoLast() {
 
 void Play_Scene::runNewDay() {
     growZones();      // new buildings on zoned land (from yesterday's demand)
+    minimapDirty = true;
     trafficDue = true; // commutes are routed half a day later (spreads the daily work over two frames)
     DayReport rep = economy.runDay(happinessSystem);
     lastDailyIncome = rep.net;
@@ -763,4 +789,6 @@ void Play_Scene::runSimulationTick() {
 #include "./play/Hud.hpp"
 #include "./play/Menu.hpp"
 #include "./play/Stats.hpp"
+#include "./play/Polish.hpp"
+#include "./play/Progress.hpp"
 #include "./SaveGame.hpp"
