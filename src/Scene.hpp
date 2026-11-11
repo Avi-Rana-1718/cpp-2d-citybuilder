@@ -10,6 +10,9 @@ class Scene {
 
     virtual void init();
     virtual void update(float deltaTime);
+    // Called after the window is resized (screenW / screenH already updated)
+    virtual void onResize(unsigned width, unsigned height) { (void)width; (void)height; }
+    virtual void onClose() {}
 };
 
 void Scene::init() {
